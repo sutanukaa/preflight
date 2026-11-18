@@ -491,76 +491,36 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
-      {/* Interactive Controls & Speech Input Bar */}
-      <div className="bg-surface border border-line rounded-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-card">
-        {/* Hardware Toggles */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMicActive(!micActive)}
-            className={`p-2.5 rounded-md border text-xs font-semibold flex items-center gap-2 transition-colors ${
-              micActive
-                ? "bg-canvas border-line text-ink hover:bg-line/40"
-                : "bg-danger-bg border-danger text-danger"
-            }`}
-          >
-            {micActive ? <Mic className="w-4 h-4 text-brand" /> : <MicOff className="w-4 h-4 text-danger" />}
-            <span className="font-mono">{micActive ? "Mic Active" : "Unmute"}</span>
-          </button>
-
-          <button
-            onClick={() => setVideoActive(!videoActive)}
-            className={`p-2.5 rounded-md border text-xs font-semibold flex items-center gap-2 transition-colors ${
-              videoActive
-                ? "bg-canvas border-line text-ink hover:bg-line/40"
-                : "bg-danger-bg border-danger text-danger"
-            }`}
-          >
-            {videoActive ? <VideoIcon className="w-4 h-4 text-brand" /> : <VideoOff className="w-4 h-4 text-danger" />}
-            <span className="font-mono">{videoActive ? "Camera" : "Enable"}</span>
-          </button>
-
-          <button
-            onClick={toggleScreenShare}
-            className={`p-2.5 rounded-md border text-xs font-semibold flex items-center gap-2 transition-colors ${
-              isScreenSharing
-                ? "bg-brand text-white border-brand"
-                : "bg-canvas border-line text-ink hover:bg-line/40"
-            }`}
-          >
-            {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4 text-muted" />}
-            <span className="font-mono">{isScreenSharing ? "Stop Share" : "Share Screen"}</span>
-          </button>
-        </div>
-
-        {/* Live Speech & Text Input Form */}
-        <form onSubmit={handleSendMessage} className="flex-1 max-w-xl flex items-center gap-2 w-full">
+      {/* Dedicated Speech & Message Input Bar */}
+      <div className="bg-surface border border-line rounded-lg p-3 shadow-card">
+        <form onSubmit={handleSendMessage} className="flex items-center gap-2.5">
           {/* Click to Speak Mic Button */}
           <button
             type="button"
             onClick={toggleVoiceListening}
-            className={`px-3 py-2 rounded-md text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all ${
+            className={`px-3.5 py-2 rounded-md text-xs font-semibold flex items-center gap-2 shrink-0 transition-all ${
               isListening
-                ? "bg-danger text-white animate-pulse shadow-md"
+                ? "bg-danger text-white animate-pulse shadow"
                 : "bg-canvas border border-line text-ink hover:border-brand hover:text-brand"
             }`}
             title="Click to speak with microphone"
           >
             <Mic className={`w-3.5 h-3.5 ${isListening ? "text-white" : "text-brand"}`} />
-            <span className="font-mono">{isListening ? "Listening..." : "Speak (Mic)"}</span>
+            <span className="font-mono text-xs">{isListening ? "Listening... (Speaking)" : "Speak (Mic)"}</span>
           </button>
 
           <input
             type="text"
-            placeholder={isListening ? "Listening to your voice... (or type here)" : "Type your message or click 'Speak'..."}
+            placeholder={isListening ? "Listening to your voice... (or type here)..." : "Type your message or click 'Speak'..."}
             value={userSpeechInput}
             onChange={(e) => setUserSpeechInput(e.target.value)}
-            className="flex-1 px-3.5 py-2 border border-line rounded-md text-xs focus:outline-none focus:border-brand font-sans"
+            className="flex-1 px-3.5 py-2 border border-line rounded-md text-xs focus:outline-none focus:border-brand font-sans bg-canvas/30"
           />
 
           <button
             type="submit"
             disabled={!userSpeechInput.trim() || isSending}
-            className="px-4 py-2 bg-brand text-white rounded-md text-xs font-semibold hover:bg-brand-deep disabled:opacity-50 flex items-center gap-1.5 shrink-0 transition-colors shadow-subtle"
+            className="px-4 py-2 bg-brand text-white rounded-md text-xs font-semibold hover:bg-brand-deep disabled:opacity-40 flex items-center gap-1.5 shrink-0 transition-colors shadow-subtle"
           >
             {isSending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -570,25 +530,75 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             <span>Send</span>
           </button>
         </form>
+      </div>
 
-        {/* End Call & Trigger Inngest Button */}
-        <button
-          onClick={handleEndCall}
-          disabled={isEndingCall}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-md bg-danger text-white text-xs font-bold hover:bg-red-700 transition-colors shadow-subtle disabled:opacity-50 shrink-0"
-        >
-          {isEndingCall ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Triggering Inngest...</span>
-            </>
-          ) : (
-            <>
-              <PhoneOff className="w-4 h-4" />
-              <span>End Call</span>
-            </>
-          )}
-        </button>
+      {/* Control Dock: Hardware Toggles (Left) & End Call (Right) */}
+      <div className="bg-surface border border-line rounded-lg px-4 py-3 flex items-center justify-between gap-4 shadow-card">
+        {/* Hardware Toggles */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMicActive(!micActive)}
+            className={`px-3 py-2 rounded-md border text-xs font-medium flex items-center gap-2 transition-colors ${
+              micActive
+                ? "bg-canvas border-line text-ink hover:bg-line/40"
+                : "bg-danger-bg border-danger text-danger"
+            }`}
+          >
+            {micActive ? <Mic className="w-3.5 h-3.5 text-brand" /> : <MicOff className="w-3.5 h-3.5 text-danger" />}
+            <span className="font-mono text-xs">{micActive ? "Mic Live" : "Unmute"}</span>
+          </button>
+
+          <button
+            onClick={() => setVideoActive(!videoActive)}
+            className={`px-3 py-2 rounded-md border text-xs font-medium flex items-center gap-2 transition-colors ${
+              videoActive
+                ? "bg-canvas border-line text-ink hover:bg-line/40"
+                : "bg-danger-bg border-danger text-danger"
+            }`}
+          >
+            {videoActive ? <VideoIcon className="w-3.5 h-3.5 text-brand" /> : <VideoOff className="w-3.5 h-3.5 text-danger" />}
+            <span className="font-mono text-xs">{videoActive ? "Camera On" : "Enable Camera"}</span>
+          </button>
+
+          <button
+            onClick={toggleScreenShare}
+            className={`px-3 py-2 rounded-md border text-xs font-medium flex items-center gap-2 transition-colors ${
+              isScreenSharing
+                ? "bg-brand text-white border-brand"
+                : "bg-canvas border-line text-ink hover:bg-line/40"
+            }`}
+          >
+            {isScreenSharing ? <MonitorOff className="w-3.5 h-3.5" /> : <Monitor className="w-3.5 h-3.5 text-muted" />}
+            <span className="font-mono text-xs">{isScreenSharing ? "Stop Share" : "Share Screen"}</span>
+          </button>
+        </div>
+
+        {/* Center: Status indicator */}
+        <div className="hidden sm:flex items-center gap-2 text-[11px] font-mono text-muted">
+          <span className="w-2 h-2 rounded-full bg-success" />
+          <span>WebRTC Connected • Gemini 3.5 Live</span>
+        </div>
+
+        {/* Right: End Call Action */}
+        <div className="shrink-0">
+          <button
+            onClick={handleEndCall}
+            disabled={isEndingCall}
+            className="px-4 py-2 rounded-md bg-danger hover:bg-red-700 text-white text-xs font-semibold flex items-center gap-2 transition-colors shadow-subtle disabled:opacity-50"
+          >
+            {isEndingCall ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Ending Call...</span>
+              </>
+            ) : (
+              <>
+                <PhoneOff className="w-3.5 h-3.5" />
+                <span>End Call</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Live Transcript Ticker Stream */}

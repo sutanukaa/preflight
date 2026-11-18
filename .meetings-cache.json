@@ -24,5 +24,182 @@
     "durationSeconds": 0,
     "recordingUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
     "transcripts": []
+  },
+  {
+    "id": "meet-1795038507616",
+    "title": "Interactive Video Session with Specialist",
+    "agentId": "agent-david",
+    "agent": {
+      "id": "agent-david",
+      "name": "David Kross",
+      "role": "Senior Engineering Hiring Manager",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=DavidKross&backgroundColor=b6e3f4,ffdfbf,c0aede",
+      "bio": "Engineering hiring manager conducting realistic system design and behavioral interview rounds with granular rubric scoring.",
+      "systemPrompt": "You are David Kross, a senior engineering hiring manager conducting a live interview. You evaluate the candidate against senior-level criteria with deep technical follow-ups.",
+      "voice": "fable",
+      "tags": [
+        "Technical Interview",
+        "System Design",
+        "Algorithms",
+        "Behavioral"
+      ]
+    },
+    "userId": "user-default-1",
+    "status": "live",
+    "startedAt": "2026-11-18T21:48:27.616Z",
+    "durationSeconds": 0,
+    "recordingUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "transcripts": []
+  },
+  {
+    "id": "meet-1795038507617",
+    "title": "Interactive Video Session with Specialist",
+    "agentId": "agent-david",
+    "agent": {
+      "id": "agent-david",
+      "name": "David Kross",
+      "role": "Senior Engineering Hiring Manager",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=DavidKross&backgroundColor=b6e3f4,ffdfbf,c0aede",
+      "bio": "Engineering hiring manager conducting realistic system design and behavioral interview rounds with granular rubric scoring.",
+      "systemPrompt": "You are David Kross, a senior engineering hiring manager conducting a live interview. You evaluate the candidate against senior-level criteria with deep technical follow-ups.",
+      "voice": "fable",
+      "tags": [
+        "Technical Interview",
+        "System Design",
+        "Algorithms",
+        "Behavioral"
+      ]
+    },
+    "userId": "user-default-1",
+    "status": "completed",
+    "startedAt": "2026-11-18T21:48:27.617Z",
+    "durationSeconds": 80,
+    "recordingUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "transcripts": [
+      {
+        "id": "u-init-1795038514371",
+        "speaker": "agent",
+        "speakerName": "David Kross",
+        "timestamp": "00:02",
+        "seconds": 2,
+        "text": "Hello! I am David Kross. Stream Video WebRTC connection established. What would you like to review or discuss today?"
+      },
+      {
+        "id": "u-user-1795038521513",
+        "speaker": "user",
+        "speakerName": "You (You)",
+        "timestamp": "00:09",
+        "seconds": 9,
+        "text": "connection established"
+      },
+      {
+        "id": "u-agent-1795038524874",
+        "speaker": "agent",
+        "speakerName": "David Kross",
+        "timestamp": "00:11",
+        "seconds": 11,
+        "text": "Good to hear. Let's dive right in then—tell me about a complex distributed systems problem you've owned recently and how you handled the trade-offs."
+      },
+      {
+        "id": "u-user-1795038539216",
+        "speaker": "user",
+        "speakerName": "You (You)",
+        "timestamp": "00:27",
+        "seconds": 27,
+        "text": "hey how are you doing"
+      },
+      {
+        "id": "u-agent-1795038540494",
+        "speaker": "agent",
+        "speakerName": "David Kross",
+        "timestamp": "00:29",
+        "seconds": 29,
+        "text": "Doing well, thanks. Let's skip the small talk and jump straight into our technical discussion—tell me about that complex distributed systems problem you recently worked on."
+      },
+      {
+        "id": "u-user-1795038564588",
+        "speaker": "user",
+        "speakerName": "You (You)",
+        "timestamp": "00:45",
+        "seconds": 45,
+        "text": "I want to build a 18 signal behaviour Trigger Smartwatch I will get completely on my own"
+      },
+      {
+        "id": "u-agent-1795038566711",
+        "speaker": "agent",
+        "speakerName": "David Kross",
+        "timestamp": "00:47",
+        "seconds": 47,
+        "text": "That sounds like an ambitious hardware and software project, but for this interview, I need us to focus on senior-level software engineering and distributed systems. Tell me about a time you designed a scalable backend architecture or handled a tough system trade-off in a past role."
+      }
+    ],
+    "endedAt": "2026-11-18T21:49:53.631Z",
+    "summary": {
+      "meetingId": "meet-1795038507617",
+      "overview": "Live interactive session with David Kross focusing on real-time video architecture, Inngest background event processing, and transcript seeking synchronization.",
+      "keyTakeaways": [
+        "Stream Video handles WebRTC media egress with sub-second connection times.",
+        "Inngest ensures reliable background transcription without edge function timeout risk.",
+        "Post-meeting suite provides synchronized video playback with clickable topic milestones.",
+        "Meeting AI Copilot allows conversational Q&A over the full transcript."
+      ],
+      "topics": [
+        {
+          "id": "top-meet-1795038507617-1",
+          "title": "Session Initiation & Problem Statement",
+          "timestamp": "00:04",
+          "seconds": 4,
+          "summary": "Clarified primary objectives around WebRTC streaming and background pipelines.",
+          "bulletPoints": [
+            "Evaluated Stream Video SDK capabilities.",
+            "Established latency budget for OpenAI Realtime voice interaction."
+          ]
+        },
+        {
+          "id": "top-meet-1795038507617-2",
+          "title": "Event-Driven Processing with Inngest",
+          "timestamp": "00:54",
+          "seconds": 54,
+          "summary": "Decoupled video call termination from asynchronous transcription and topic modeling.",
+          "bulletPoints": [
+            "Implemented step-functions for automatic retry and rate-limit backoff.",
+            "Ensured database updates are idempotent."
+          ]
+        },
+        {
+          "id": "top-meet-1795038507617-3",
+          "title": "Video Seeking & Transcript Indexing",
+          "timestamp": "02:18",
+          "seconds": 138,
+          "summary": "Linked player playback head with timestamp-indexed utterances.",
+          "bulletPoints": [
+            "Full-text search highlighting across speech lines.",
+            "Instant jump-to-time on topic selection."
+          ]
+        }
+      ],
+      "actionItems": [
+        {
+          "id": "act-meet-1795038507617-1",
+          "task": "Verify WebRTC token generation security parameters",
+          "owner": "You",
+          "priority": "high",
+          "status": "completed"
+        },
+        {
+          "id": "act-meet-1795038507617-2",
+          "task": "Run end-to-end Inngest function test with sample recording payload",
+          "owner": "DevOps",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ],
+      "sentiment": {
+        "positive": 89,
+        "neutral": 9,
+        "negative": 2,
+        "verdict": "Decisive & Solution-Oriented"
+      }
+    }
   }
 ]
