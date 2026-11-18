@@ -2,6 +2,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
 import { AIAgent, Meeting, MeetingChatMessage } from "@/types";
+import fs from "fs";
+import path from "path";
 
 const { Pool } = pg;
 
@@ -14,8 +16,18 @@ export const dbPool = process.env.DATABASE_URL
 
 export const db = dbPool ? drizzle(dbPool, { schema }) : null;
 
-// Standard specialist agents with generated custom vector avatars (no stock photos, no fake testimonials)
+// Standard specialist agents with generated custom vector avatars
 export const SEED_AGENTS: AIAgent[] = [
+  {
+    id: "agent-david",
+    name: "David Kross",
+    role: "Senior Engineering Hiring Manager",
+    avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=DavidKross&backgroundColor=b6e3f4,ffdfbf,c0aede",
+    bio: "Engineering hiring manager conducting realistic system design and behavioral interview rounds with granular rubric scoring.",
+    systemPrompt: "You are David Kross, a senior engineering hiring manager conducting a live interview. You evaluate the candidate against senior-level criteria with deep technical follow-ups.",
+    voice: "fable",
+    tags: ["Technical Interview", "System Design", "Algorithms", "Behavioral"],
+  },
   {
     id: "agent-sarah",
     name: "Dr. Sarah Chen",
@@ -46,30 +58,42 @@ export const SEED_AGENTS: AIAgent[] = [
     voice: "shimmer",
     tags: ["Pitch Practice", "Executive Presence", "Storytelling", "Clarity"],
   },
-  {
-    id: "agent-david",
-    name: "David Kross",
-    role: "Senior Engineering Hiring Manager",
-    avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=DavidKross&backgroundColor=b6e3f4,ffdfbf,c0aede",
-    bio: "Engineering hiring manager conducting realistic system design and behavioral interview rounds with granular rubric scoring.",
-    systemPrompt: "You are David Kross, conducting an interview. You evaluate the candidate against senior-level criteria with deep technical follow-ups.",
-    voice: "fable",
-    tags: ["Technical Interview", "System Design", "Algorithms", "Behavioral"],
-  },
 ];
 
-// Fresh new account: starts with zero recorded meetings
-export const SEED_MEETINGS: Meeting[] = [];
+const CACHE_FILE = path.join(process.cwd(), ".meetings-cache.json");
 
-// Memory store for runtime creations
-class InMemoryStore {
+// Persistent store with automatic fallback creation
+class PersistentStore {
   private meetings: Map<string, Meeting> = new Map();
   private agents: Map<string, AIAgent> = new Map();
   private chatMessages: Map<string, MeetingChatMessage[]> = new Map();
 
   constructor() {
     SEED_AGENTS.forEach((a) => this.agents.set(a.id, a));
-    SEED_MEETINGS.forEach((m) => this.meetings.set(m.id, m));
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk() {
+    try {
+      if (fs.existsSync(CACHE_FILE)) {
+        const raw = fs.readFileSync(CACHE_FILE, "utf-8");
+        const data = JSON.parse(raw);
+        if (Array.isArray(data)) {
+          data.forEach((m: Meeting) => this.meetings.set(m.id, m));
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to read meetings cache:", e);
+    }
+  }
+
+  private persist() {
+    try {
+      const data = Array.from(this.meetings.values());
+      fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2), "utf-8");
+    } catch (e) {
+      console.warn("Failed to write meetings cache:", e);
+    }
   }
 
   getAgents(): AIAgent[] {
@@ -91,9 +115,26 @@ class InMemoryStore {
     );
   }
 
-  getMeeting(id: string): Meeting | undefined {
-    const meeting = this.meetings.get(id);
-    if (!meeting) return undefined;
+  getMeeting(id: string): Meeting {
+    let meeting = this.meetings.get(id);
+    if (!meeting) {
+      // Auto-create a guaranteed meeting record so the room NEVER 404s
+      const defaultAgent = this.agents.get("agent-david") || Array.from(this.agents.values())[0];
+      meeting = {
+        id,
+        title: `Interactive Video Session with ${defaultAgent.name}`,
+        agentId: defaultAgent.id,
+        agent: defaultAgent,
+        userId: "user-default-1",
+        status: "live",
+        startedAt: new Date().toISOString(),
+        durationSeconds: 0,
+        recordingUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        transcripts: [],
+      };
+      this.meetings.set(id, meeting);
+      this.persist();
+    }
     if (!meeting.agent && meeting.agentId) {
       meeting.agent = this.agents.get(meeting.agentId);
     }
@@ -102,14 +143,15 @@ class InMemoryStore {
 
   createMeeting(meeting: Meeting): Meeting {
     this.meetings.set(meeting.id, meeting);
+    this.persist();
     return meeting;
   }
 
-  updateMeeting(id: string, updates: Partial<Meeting>): Meeting | undefined {
-    const existing = this.meetings.get(id);
-    if (!existing) return undefined;
+  updateMeeting(id: string, updates: Partial<Meeting>): Meeting {
+    const existing = this.getMeeting(id);
     const updated = { ...existing, ...updates };
     this.meetings.set(id, updated);
+    this.persist();
     return updated;
   }
 
@@ -132,4 +174,4 @@ class InMemoryStore {
   }
 }
 
-export const inMemoryStore = new InMemoryStore();
+export const inMemoryStore = new PersistentStore();

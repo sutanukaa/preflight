@@ -1,0 +1,28 @@
+[
+  {
+    "id": "meet-1795038283323",
+    "title": "Interactive Video Session with David Kross",
+    "agentId": "agent-david",
+    "agent": {
+      "id": "agent-david",
+      "name": "David Kross",
+      "role": "Senior Engineering Hiring Manager",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=DavidKross&backgroundColor=b6e3f4,ffdfbf,c0aede",
+      "bio": "Engineering hiring manager conducting realistic system design and behavioral interview rounds with granular rubric scoring.",
+      "systemPrompt": "You are David Kross, a senior engineering hiring manager conducting a live interview. You evaluate the candidate against senior-level criteria with deep technical follow-ups.",
+      "voice": "fable",
+      "tags": [
+        "Technical Interview",
+        "System Design",
+        "Algorithms",
+        "Behavioral"
+      ]
+    },
+    "userId": "user-default-1",
+    "status": "live",
+    "startedAt": "2026-11-18T21:48:07.196Z",
+    "durationSeconds": 0,
+    "recordingUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "transcripts": []
+  }
+]

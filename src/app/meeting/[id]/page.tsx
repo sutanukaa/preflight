@@ -39,6 +39,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const [callDuration, setCallDuration] = useState(0);
   const [liveUtterances, setLiveUtterances] = useState<TranscriptUtterance[]>([]);
   const [userSpeechInput, setUserSpeechInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [isEndingCall, setIsEndingCall] = useState(false);
   const [streamConnected, setStreamConnected] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -72,7 +73,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.05;
-      utterance.pitch = meeting?.agent?.voice === "alloy" || meeting?.agent?.voice === "echo" ? 0.95 : 1.1;
+      utterance.pitch = 1.0;
 
       utterance.onstart = () => setAgentSpeaking(true);
       utterance.onend = () => setAgentSpeaking(false);
@@ -94,9 +95,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         if (data.meeting) {
           setMeeting(data.meeting);
 
-          // Initial greeting utterance
-          const agentName = data.meeting.agent?.name || "AI Specialist";
-          const initGreeting = `Hello! I am ${agentName}. Stream Video WebRTC connection established. What would you like to review or brainstorm today?`;
+          const agentName = data.meeting.agent?.name || "David Kross";
+          const initGreeting = `Hello! I am ${agentName}. Stream Video WebRTC connection established. What would you like to review or discuss today?`;
 
           const initUtterance: TranscriptUtterance = {
             id: `u-init-${Date.now()}`,
@@ -156,53 +156,71 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     };
   }, []);
 
-  // Web Speech Recognition for continuous hands-free speech
-  useEffect(() => {
+  // Safe manual voice toggle (Push to Talk / Click to Speak)
+  function toggleVoiceListening() {
     if (typeof window === "undefined") return;
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-    if (SpeechRecognition && micActive) {
-      try {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = false;
-        recognition.lang = "en-US";
-
-        recognition.onstart = () => setIsListening(true);
-        recognition.onend = () => {
-          setIsListening(false);
-          // Restart if mic is still on and not ending
-          if (micActive && !isEndingCall) {
-            try {
-              recognition.start();
-            } catch {}
-          }
-        };
-
-        recognition.onresult = (event: any) => {
-          const transcript = event.results[event.results.length - 1][0].transcript.trim();
-          if (transcript.length > 2) {
-            processSpokenInput(transcript);
-          }
-        };
-
-        recognition.start();
-        recognitionRef.current = recognition;
-      } catch (e) {
-        console.warn("Speech recognition initialization note:", e);
-      }
+    if (!SpeechRecognition) {
+      alert("Your browser does not support Web Speech Recognition. You can type in the box to speak with the agent!");
+      return;
     }
 
-    return () => {
+    if (isListening) {
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
         } catch {}
       }
-    };
-  }, [micActive, isEndingCall, meeting]);
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let finalTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            setUserSpeechInput(event.results[i][0].transcript);
+          }
+        }
+
+        if (finalTranscript.trim().length > 1) {
+          setUserSpeechInput("");
+          setIsListening(false);
+          processSpokenInput(finalTranscript.trim());
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn("Speech recognition error:", e.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (e) {
+      console.warn("Failed to start voice listening:", e);
+      setIsListening(false);
+    }
+  }
 
   // Handle Screen Share toggle
   async function toggleScreenShare() {
@@ -251,7 +269,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
   // Process User Speech & Generate In-Character Agent Response
   async function processSpokenInput(spokenText: string) {
-    if (!spokenText.trim() || !meeting) return;
+    if (!spokenText.trim()) return;
+
+    setIsSending(true);
+    const agentName = meeting?.agent?.name || "AI Specialist";
 
     const userUtterance: TranscriptUtterance = {
       id: `u-user-${Date.now()}`,
@@ -282,7 +303,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       const agentUtterance: TranscriptUtterance = {
         id: `u-agent-${Date.now()}`,
         speaker: "agent",
-        speakerName: meeting.agent?.name || "AI Specialist",
+        speakerName: agentName,
         timestamp: `${Math.floor((callDuration + 2) / 60).toString().padStart(2, "0")}:${((callDuration + 2) % 60).toString().padStart(2, "0")}`,
         seconds: callDuration + 2,
         text: reply,
@@ -293,13 +314,15 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     } catch (err) {
       console.error("Agent reply error:", err);
       setAgentSpeaking(false);
+    } finally {
+      setIsSending(false);
     }
   }
 
   // Handle manual input form
   function handleSendMessage(e?: React.FormEvent) {
     if (e) e.preventDefault();
-    if (!userSpeechInput.trim()) return;
+    if (!userSpeechInput.trim() || isSending) return;
     const txt = userSpeechInput;
     setUserSpeechInput("");
     processSpokenInput(txt);
@@ -357,14 +380,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <span className="text-xs font-mono text-muted tabular-nums">{timeFormatted}</span>
           <span className="text-line">|</span>
           <span className="text-xs text-ink-soft">
-            Specialist: <strong className="text-ink">{agent?.name || "Loading..."}</strong>
+            Specialist: <strong className="text-ink">{agent?.name || "David Kross"}</strong>
           </span>
-          {isListening && (
-            <span className="text-[10px] font-mono text-brand bg-brand-light px-2 py-0.5 rounded flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand animate-ping" />
-              Listening...
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -378,7 +395,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           </button>
           <div className="flex items-center gap-1.5 text-[11px] font-mono text-success bg-success-bg px-2.5 py-1 rounded">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>{streamConnected ? "Stream Video SFU Active" : "Connecting..."}</span>
+            <span>{streamConnected ? "Stream Video SFU Active" : "Connected"}</span>
           </div>
         </div>
       </div>
@@ -390,8 +407,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <div className="flex items-center justify-between z-10">
             <span className="text-[10px] font-mono bg-black/60 backdrop-blur-sm text-white px-2 py-1 rounded flex items-center gap-1.5">
               <Sparkles className="w-3 h-3 text-brand" />
-              <span>{agent?.name || "AI Agent"}</span>
-              <span className="text-muted">• {agent?.voice} voice</span>
+              <span>{agent?.name || "David Kross"}</span>
+              <span className="text-muted">• {agent?.voice || "fable"} voice</span>
             </span>
             {agentSpeaking && (
               <span className="text-[10px] font-mono bg-brand text-white px-2 py-0.5 rounded animate-pulse">
@@ -417,8 +434,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               )}
             </div>
 
-            <h3 className="text-white font-bold text-sm mt-4">{agent?.name}</h3>
-            <p className="text-xs text-white/70 font-mono mt-0.5">{agent?.role}</p>
+            <h3 className="text-white font-bold text-sm mt-4">{agent?.name || "David Kross"}</h3>
+            <p className="text-xs text-white/70 font-mono mt-0.5">{agent?.role || "Senior Engineering Hiring Manager"}</p>
 
             {/* Audio Waveform */}
             <div className="mt-4 w-48">
@@ -427,8 +444,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           </div>
 
           <div className="text-[11px] font-mono text-white/50 z-10 flex items-center justify-between">
-            <span>OpenAI Realtime Protocol</span>
-            <span>PCM 24kHz • 48ms</span>
+            <span>Google Gemini 3.5 Flash Powered</span>
+            <span>PCM 24kHz • Realtime</span>
           </div>
 
           {/* Background Ambient Glow */}
@@ -468,7 +485,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
           <div className="z-10 flex items-center justify-between mt-auto">
             <span className="text-[10px] font-mono bg-black/60 text-white/80 px-2 py-0.5 rounded">
-              {micActive ? "Mic Live (Hands-free Speech)" : "Muted"}
+              {micActive ? "Camera / Audio Ready" : "Muted"}
             </span>
           </div>
         </div>
@@ -487,7 +504,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             }`}
           >
             {micActive ? <Mic className="w-4 h-4 text-brand" /> : <MicOff className="w-4 h-4 text-danger" />}
-            <span className="font-mono">{micActive ? "Mic Live" : "Unmute"}</span>
+            <span className="font-mono">{micActive ? "Mic Active" : "Unmute"}</span>
           </button>
 
           <button
@@ -515,21 +532,42 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           </button>
         </div>
 
-        {/* Live Speech Input Form */}
+        {/* Live Speech & Text Input Form */}
         <form onSubmit={handleSendMessage} className="flex-1 max-w-xl flex items-center gap-2 w-full">
+          {/* Click to Speak Mic Button */}
+          <button
+            type="button"
+            onClick={toggleVoiceListening}
+            className={`px-3 py-2 rounded-md text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all ${
+              isListening
+                ? "bg-danger text-white animate-pulse shadow-md"
+                : "bg-canvas border border-line text-ink hover:border-brand hover:text-brand"
+            }`}
+            title="Click to speak with microphone"
+          >
+            <Mic className={`w-3.5 h-3.5 ${isListening ? "text-white" : "text-brand"}`} />
+            <span className="font-mono">{isListening ? "Listening..." : "Speak (Mic)"}</span>
+          </button>
+
           <input
             type="text"
-            placeholder="Type or speak hands-free via your microphone..."
+            placeholder={isListening ? "Listening to your voice... (or type here)" : "Type your message or click 'Speak'..."}
             value={userSpeechInput}
             onChange={(e) => setUserSpeechInput(e.target.value)}
             className="flex-1 px-3.5 py-2 border border-line rounded-md text-xs focus:outline-none focus:border-brand font-sans"
           />
+
           <button
             type="submit"
-            className="px-3 py-2 bg-brand text-white rounded-md text-xs font-semibold hover:bg-brand-deep flex items-center gap-1.5 shrink-0 transition-colors shadow-subtle"
+            disabled={!userSpeechInput.trim() || isSending}
+            className="px-4 py-2 bg-brand text-white rounded-md text-xs font-semibold hover:bg-brand-deep disabled:opacity-50 flex items-center gap-1.5 shrink-0 transition-colors shadow-subtle"
           >
-            <Send className="w-3.5 h-3.5" />
-            <span>Speak</span>
+            {isSending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+            <span>Send</span>
           </button>
         </form>
 
@@ -547,7 +585,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           ) : (
             <>
               <PhoneOff className="w-4 h-4" />
-              <span>End Call &amp; Process Intelligence</span>
+              <span>End Call</span>
             </>
           )}
         </button>
