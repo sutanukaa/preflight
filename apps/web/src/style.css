@@ -222,3 +222,36 @@
 .badge-warn { background: #fbf3e5; color: #ad782a; }
 .badge-fail { background: #f8edec; color: #b34d4a; }
 .badge-unknown { background: #f0f2f4; color: #78858b; }
+
+.preview-banner {
+  background: #fbf5ea;
+  border-bottom: 1px solid #ebdcc5;
+  color: #79521e;
+  padding: 9px 42px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.preview-banner button {
+  background: #244b50;
+  color: #ffffff;
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 12px;
+  font: 700 10px 'Manrope';
+  cursor: pointer;
+}
+
+.user-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f1f5f3;
+  border: 1px solid #dce8e2;
+  border-radius: 20px;
+  padding: 4px 10px 4px 6px;
+  font-size: 11px;
+  color: #244b50;
+}

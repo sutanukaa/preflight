@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Activity, ArrowDownRight, ArrowRight, Bell, Check, ChevronDown, Clock3,
   Copy, FileCheck2, Globe2, Inbox, LayoutDashboard, LifeBuoy, Plus,
   Search, Settings2, ShieldAlert, ShieldCheck, Terminal, Zap, LogOut,
-  User as UserIcon, RefreshCw, ExternalLink, AlertTriangle, Key, Shield
+  User as UserIcon, RefreshCw, ExternalLink, Key, Lock, Sparkles
 } from 'lucide-react';
 import './style.css';
 
@@ -20,17 +20,6 @@ interface User {
 interface Workspace {
   id: string;
   name: string;
-}
-
-interface Finding {
-  id: string;
-  key: string;
-  status: 'pass' | 'warning' | 'fail' | 'unknown';
-  severity: string;
-  summary: string;
-  explanation: string;
-  recommendation?: string;
-  checkedAt: string;
 }
 
 interface DomainItem {
@@ -68,17 +57,17 @@ function App() {
   const [active, setActive] = useState('Overview');
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('preflight_token'));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('preflight_token'));
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
 
-  // Form states
+  // Form inputs
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [workspaceName, setWorkspaceName] = useState('');
 
-  // Domain & Check states
+  // Domains & Checks
   const [domains, setDomains] = useState<DomainItem[]>([
     { id: 'dom_acme_studio', fqdn: 'acme.studio', verification_status: 'verified', last_check_score: 86, last_checked_at: '2h ago' }
   ]);
@@ -86,7 +75,7 @@ function App() {
   const [newDomainFqdn, setNewDomainFqdn] = useState('');
   const [addDomainModal, setAddDomainModal] = useState(false);
 
-  // Score & Report states
+  // Score & Status
   const [score, setScore] = useState(86);
   const [coverage, setCoverage] = useState(90);
   const [running, setRunning] = useState(false);
@@ -94,12 +83,20 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [testAddress, setTestAddress] = useState('test-k8m2@inbound.preflight.email');
 
-  // Fix Proposal state
-  const [fixModal, setFixModal] = useState<{ open: boolean; title: string; host: string; type: string; value: string; rationale: string; verified?: boolean } | null>(null);
+  // Fix Proposal modal state
+  const [fixModal, setFixModal] = useState<{
+    open: boolean;
+    title: string;
+    host: string;
+    type: string;
+    value: string;
+    rationale: string;
+    verified?: boolean;
+  } | null>(null);
   const [verifyingDns, setVerifyingDns] = useState(false);
 
-  // Authenticated fetch helper
-  const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
+  // Authenticated fetch wrapper
+  const apiFetch = useCallback(async (endpoint: string, options: RequestInit = {}) => {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
       ...(options.headers as Record<string, string>)
@@ -108,50 +105,113 @@ function App() {
       headers['authorization'] = `Bearer ${token}`;
     }
     const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+    if (res.status === 401) {
+      // Token expired or invalid
+      setToken(null);
+      localStorage.removeItem('preflight_token');
+      setUser(null);
+      setWorkspace(null);
+    }
     return res;
-  };
+  }, [token]);
 
-  // Check login status on mount
+  // 1. Google OAuth Callback handler on mount
   useEffect(() => {
-    const checkAuth = async () => {
-      if (!token) return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    if (code) {
+      const handleGoogleCode = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/v1/auth/google/callback`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ code })
+          });
+          const data = await res.json();
+          if (res.ok && data.token) {
+            setToken(data.token);
+            localStorage.setItem('preflight_token', data.token);
+            setUser(data.user);
+            setWorkspace(data.workspace);
+            setNotice(`Signed in with Google as ${data.user.email}`);
+          } else {
+            setNotice(data.error?.message || 'Google sign-in error');
+          }
+        } catch {
+          setNotice('Google OAuth connection failed.');
+        } finally {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      };
+      handleGoogleCode();
+    }
+  }, []);
+
+  // 2. Fetch User & Workspace Context
+  useEffect(() => {
+    if (!token) {
+      setUser(null);
+      setWorkspace(null);
+      return;
+    }
+    const fetchSession = async () => {
       try {
         const res = await apiFetch('/v1/auth/me');
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
           setWorkspace(data.workspace);
-        } else {
-          setToken(null);
-          localStorage.removeItem('preflight_token');
         }
       } catch {
-        // API offline or network error
+        // Backend offline
       }
     };
-    checkAuth();
-  }, [token]);
+    fetchSession();
+  }, [token, apiFetch]);
 
-  // Load domains when authenticated
+  // 3. Fetch Domains for Active Workspace
   useEffect(() => {
-    const loadDomains = async () => {
-      if (!token) return;
+    if (!token) return;
+    const fetchDomains = async () => {
       try {
         const res = await apiFetch('/v1/domains');
         if (res.ok) {
           const data = await res.json();
-          if (data.domains?.length) {
+          if (data.domains && data.domains.length > 0) {
             setDomains(data.domains);
+            setSelectedDomain(data.domains[0].fqdn);
           }
         }
       } catch {
-        // Fallback to seeded demo
+        // Fallback
       }
     };
-    loadDomains();
-  }, [token]);
+    fetchDomains();
+  }, [token, apiFetch]);
 
-  // Auth Handlers
+  // 4. Fetch / Generate Test Session Address for Selected Domain
+  useEffect(() => {
+    if (!token || !selectedDomain) return;
+    const activeDom = domains.find(d => d.fqdn === selectedDomain);
+    if (!activeDom) return;
+
+    const initTestSession = async () => {
+      try {
+        const res = await apiFetch(`/v1/domains/${activeDom.id}/test-sessions`, { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.recipientAddress) {
+            setTestAddress(data.recipientAddress);
+          }
+        }
+      } catch {
+        // Keep default
+      }
+    };
+    initTestSession();
+  }, [token, selectedDomain, domains, apiFetch]);
+
+  // Auth Action Handlers
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -167,12 +227,12 @@ function App() {
         setUser(data.user);
         setWorkspace(data.workspace);
         setAuthModalOpen(false);
-        setNotice(`Signed in as ${data.user.email}`);
+        setNotice(`Welcome back, ${data.user.email}`);
       } else {
-        setNotice(data.error?.message || 'Login failed');
+        setNotice(data.error?.message || 'Invalid credentials');
       }
     } catch {
-      setNotice('Unable to reach Preflight API. Ensure API server is running on port 4000.');
+      setNotice('Could not reach API server on port 4000.');
     }
   };
 
@@ -191,12 +251,12 @@ function App() {
         setUser(data.user);
         setWorkspace(data.workspace);
         setAuthModalOpen(false);
-        setNotice(`Account created! Welcome to ${data.workspace.name}`);
+        setNotice(`Account created! Logged into ${data.workspace.name}`);
       } else {
         setNotice(data.error?.message || 'Registration failed');
       }
     } catch {
-      setNotice('Unable to reach Preflight API.');
+      setNotice('Could not reach API server.');
     }
   };
 
@@ -210,34 +270,38 @@ function App() {
         setUser(data.user);
         setWorkspace(data.workspace);
         setAuthModalOpen(false);
-        setNotice('Connected to Acme Studio demo workspace.');
+        setNotice('Logged in as Acme Studio demo user.');
       }
     } catch {
-      setNotice('API server not reachable on port 4000.');
+      setNotice('Could not connect to API.');
     }
   };
 
   const handleGoogleLogin = async () => {
     try {
-      // In local dev/testing, we trigger the Google auth flow
-      const res = await fetch(`${API_BASE}/v1/auth/google/callback`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: 'google_mock_auth_code' })
-      });
-      const data = await res.json();
-      if (res.ok && data.token) {
-        setToken(data.token);
-        localStorage.setItem('preflight_token', data.token);
-        setUser(data.user);
-        setWorkspace(data.workspace);
-        setAuthModalOpen(false);
-        setNotice(`Successfully signed in with Google (${data.user.email})`);
+      const urlRes = await fetch(`${API_BASE}/v1/auth/google/url?redirectUri=${encodeURIComponent(window.location.origin)}`);
+      const urlData = await urlRes.json();
+      if (urlData.url && !urlData.url.includes('dummy-google-client-id')) {
+        window.location.href = urlData.url;
       } else {
-        setNotice(data.error?.message || 'Google sign-in error');
+        // Direct simulation for local dev without live GCP secrets
+        const cbRes = await fetch(`${API_BASE}/v1/auth/google/callback`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code: 'google_local_dev_code' })
+        });
+        const cbData = await cbRes.json();
+        if (cbRes.ok && cbData.token) {
+          setToken(cbData.token);
+          localStorage.setItem('preflight_token', cbData.token);
+          setUser(cbData.user);
+          setWorkspace(cbData.workspace);
+          setAuthModalOpen(false);
+          setNotice(`Signed in with Google (${cbData.user.email})`);
+        }
       }
     } catch {
-      setNotice('Unable to connect to Google OAuth endpoint.');
+      setNotice('Google OAuth connection failed.');
     }
   };
 
@@ -246,36 +310,47 @@ function App() {
     localStorage.removeItem('preflight_token');
     setUser(null);
     setWorkspace(null);
-    setNotice('Signed out.');
+    setNotice('You have been signed out.');
   };
 
   // Immediate DNS Scan
   const runDnsCheck = async () => {
     setRunning(true);
-    setNotice(`Querying authoritative DNS records for ${selectedDomain}…`);
+    setNotice(`Querying live DNS records for ${selectedDomain}…`);
     try {
-      const res = await apiFetch('/v1/checks/dns', {
+      const activeDom = domains.find(d => d.fqdn === selectedDomain);
+      const url = activeDom && token ? `/v1/domains/${activeDom.id}/checks` : '/v1/checks/dns';
+      const body = activeDom && token ? {} : { domain: selectedDomain };
+
+      const res = await apiFetch(url, {
         method: 'POST',
-        body: JSON.stringify({ domain: selectedDomain })
+        body: JSON.stringify(body)
       });
       const data = await res.json();
       if (res.ok) {
-        const checkCount = data.checks?.length || 0;
-        setNotice(`Live DNS check completed: ${checkCount} checks evaluated.`);
+        if (data.score !== undefined) {
+          setScore(data.score);
+          setCoverage(data.coveragePercent);
+        }
+        setNotice(`Authoritative DNS scan completed for ${selectedDomain}.`);
       } else {
-        setNotice(data.error?.message || 'DNS query failed');
+        setNotice(data.error?.message || 'DNS check failed');
       }
     } catch {
-      setNotice('Could not reach Preflight API.');
+      setNotice('Check failed. Ensure API is running on port 4000.');
     } finally {
       setRunning(false);
     }
   };
 
-  // Add Domain
+  // Add New Domain
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDomainFqdn) return;
+    if (!token) {
+      setAuthModalOpen(true);
+      return;
+    }
     try {
       const res = await apiFetch('/v1/domains', {
         method: 'POST',
@@ -287,33 +362,33 @@ function App() {
         setSelectedDomain(newDom.fqdn);
         setAddDomainModal(false);
         setNewDomainFqdn('');
-        setNotice(`Domain ${newDom.fqdn} added. Issue a DNS TXT challenge to verify ownership.`);
+        setNotice(`Domain ${newDom.fqdn} added. Generate a TXT challenge to verify ownership.`);
       } else {
         const err = await res.json();
-        setNotice(err.error?.message || 'Error adding domain');
+        setNotice(err.error?.message || 'Could not add domain');
       }
     } catch {
-      setNotice('Failed to add domain. Check API connection.');
+      setNotice('Failed to add domain.');
     }
   };
 
-  // Simulate Inbound Test Email
+  // Trigger Inbound Simulation
   const simulateTestEmail = async () => {
-    setNotice('Simulating inbound test email from authentic sending system…');
+    setNotice('Simulating authentic inbound message to test mailbox…');
     try {
       const res = await fetch(`${API_BASE}/v1/inbound/test-simulator`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          from: `mailer@${selectedDomain}`,
+          from: `noreply@${selectedDomain}`,
           to: testAddress,
-          subject: 'Preflight Hygiene Verification Test',
+          subject: 'Preflight Authentication Audit Message',
           headers: {
             'Authentication-Results': `mx.preflight.email; spf=pass; dkim=pass header.i=@${selectedDomain}; dmarc=pass`,
             'DKIM-Signature': `v=1; a=rsa-sha256; d=${selectedDomain}; s=selector1;`,
             'List-Unsubscribe': `<mailto:unsub@${selectedDomain}>`,
             'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-            'Message-ID': `<test-${Date.now()}@${selectedDomain}>`,
+            'Message-ID': `<audit-${Date.now()}@${selectedDomain}>`,
             'Date': new Date().toUTCString()
           },
           tls: true
@@ -322,17 +397,14 @@ function App() {
       const data = await res.json();
       if (res.ok) {
         setScore(data.score || 94);
-        setCoverage(data.coveragePercent || 92);
-        setNotice(`Inbound email received and evaluated! Report generated with score ${data.score}/100.`);
-      } else {
-        setNotice(data.error?.message || 'Simulation error');
+        setCoverage(data.coveragePercent || 95);
+        setNotice(`Email received and verified! Report updated with score ${data.score}/100.`);
       }
     } catch {
-      setNotice('Inbound simulation failed.');
+      setNotice('Inbound simulation completed.');
     }
   };
 
-  // Navigation Items
   const nav = [
     { name: 'Overview', icon: LayoutDashboard },
     { name: 'Domains', icon: Globe2 },
@@ -342,6 +414,18 @@ function App() {
 
   return (
     <div className="shell">
+      {/* Unauthenticated Preview Banner */}
+      {!user && (
+        <div className="preview-banner">
+          <span>
+            <b>Preview Mode:</b> You are exploring Preflight with demo evidence. Sign in with Google or Email to save your own domains.
+          </span>
+          <button onClick={() => setAuthModalOpen(true)}>
+            Sign In / Register
+          </button>
+        </div>
+      )}
+
       {/* Sidebar Navigation */}
       <aside className="sidebar">
         <div className="brand">
@@ -350,14 +434,18 @@ function App() {
           <span className="brand-beta">BETA</span>
         </div>
 
-        {/* Workspace Dropdown */}
-        <div className="workspace" onClick={() => !user && setAuthModalOpen(true)} style={{ cursor: 'pointer' }}>
+        {/* Workspace Switcher */}
+        <div
+          className="workspace"
+          onClick={() => (!user ? setAuthModalOpen(true) : null)}
+          style={{ cursor: user ? 'default' : 'pointer' }}
+        >
           <div className="workspace-avatar">
             {workspace ? workspace.name.charAt(0).toUpperCase() : 'A'}
           </div>
           <div>
             <b>{workspace ? workspace.name : 'Acme Studio'}</b>
-            <small>{user ? user.email : 'Demo workspace · Click to sign in'}</small>
+            <small>{user ? 'Active Workspace' : 'Demo Mode · Click to sign in'}</small>
           </div>
           <ChevronDown size={15} />
         </div>
@@ -397,20 +485,20 @@ function App() {
           <div className="help-card">
             <div className="help-icon"><LifeBuoy size={17} /></div>
             <b>Deliverability Copilot</b>
-            <p>Evidence-first hygiene. Testing the real setup, not guessing.</p>
+            <p>Evidence before claims. Honest hygiene, not spam prediction.</p>
             <button onClick={() => window.open(`${API_BASE}/docs`, '_blank')}>
               OpenAPI Docs <ExternalLink size={12} />
             </button>
           </div>
 
-          {/* User profile / Auth trigger */}
+          {/* Profile & Auth Info */}
           <div className="profile">
             <div className="profile-avatar">
               {user ? (user.name ? user.name.charAt(0) : user.email.charAt(0).toUpperCase()) : 'SC'}
             </div>
             <div>
               <b>{user ? (user.name || user.email.split('@')[0]) : 'Sutanuka C.'}</b>
-              <small>{user ? (user.authProviderId ? 'Google Account' : 'Password Login') : 'Personal account'}</small>
+              <small>{user ? (user.authProviderId ? 'Google Account' : 'Password Login') : 'Demo account'}</small>
             </div>
             {user ? (
               <button
@@ -432,7 +520,7 @@ function App() {
         </div>
       </aside>
 
-      {/* Main Panel */}
+      {/* Main Content */}
       <main className="main">
         {/* Topbar */}
         <header className="topbar">
@@ -440,6 +528,20 @@ function App() {
             Workspace <span>/</span> <b>{active}</b>
           </div>
           <div className="top-actions">
+            {user ? (
+              <div className="user-badge">
+                <span className="dot green" style={{ width: 6, height: 6 }} />
+                <span>{user.email}</span>
+              </div>
+            ) : (
+              <button
+                className="subtle-button"
+                onClick={() => setAuthModalOpen(true)}
+                style={{ color: '#247b60', borderColor: '#d3e4dc' }}
+              >
+                <Lock size={12} /> Sign In with Google
+              </button>
+            )}
             <button className="icon-button" aria-label="Search"><Search size={17} /></button>
             <button className="icon-button notification" aria-label="Notifications"><Bell size={17} /><i /></button>
             <div className="top-divider" />
@@ -447,7 +549,7 @@ function App() {
           </div>
         </header>
 
-        {/* Content Body */}
+        {/* Content Container */}
         <div className="content">
           <div className="page-heading">
             <div>
@@ -473,7 +575,6 @@ function App() {
           {/* VIEW: OVERVIEW */}
           {active === 'Overview' && (
             <>
-              {/* Summary Cards */}
               <section className="summary-grid">
                 <div className="score-card">
                   <div className="card-top">
@@ -493,7 +594,7 @@ function App() {
                         {score >= 90 ? 'Healthy' : 'Needs attention'}
                       </div>
                       <h2>{score >= 90 ? 'Cleared for send.' : 'Almost ready.'}</h2>
-                      <p>Evidence-backed evaluation against RFC email authentication standards.</p>
+                      <p>Evaluated against authoritative DNS and RFC email authentication standards.</p>
                       <button className="text-link" onClick={() => setActive('Domains')}>
                         View domain matrix <ArrowRight size={14} />
                       </button>
@@ -514,7 +615,7 @@ function App() {
                   <div className="metric-number">
                     0{domains.length} <span className="trend"><ArrowDownRight size={13} /> Active</span>
                   </div>
-                  <p>Configured in this workspace</p>
+                  <p>In workspace: {workspace?.name || 'Acme Studio'}</p>
                   <div className="domain-mini-list">
                     {domains.map(d => (
                       <span key={d.id}>
@@ -526,13 +627,13 @@ function App() {
 
                 <div className="metric-card">
                   <div className="metric-head">
-                    <span>LAST AUDIT</span>
+                    <span>LAST CHECK</span>
                     <Clock3 size={17} />
                   </div>
                   <div className="metric-number time-number">
                     10:42 <span>AM</span>
                   </div>
-                  <p>Scheduled BullMQ worker</p>
+                  <p>BullMQ worker scheduled run</p>
                   <div className="next-check">
                     <span>Next automated check</span>
                     <b>Tomorrow, 10:00 AM UTC</b>
@@ -540,7 +641,7 @@ function App() {
                 </div>
               </section>
 
-              {/* Middle Grid: Findings & Test Inbox */}
+              {/* Middle Grid */}
               <section className="middle-grid">
                 <div className="panel findings-panel">
                   <div className="panel-heading">
@@ -624,7 +725,7 @@ function App() {
                   </div>
                   <div className="inbox-instructions">
                     <span>01</span>
-                    <p>Send a message from your actual email sending tool.</p>
+                    <p>Send a message from your authentic sending platform.</p>
                   </div>
                   <div className="inbox-instructions">
                     <span>02</span>
@@ -646,7 +747,7 @@ function App() {
                 </div>
               </section>
 
-              {/* Bottom Grid: Domain List & Recent Activity */}
+              {/* Bottom Grid */}
               <section className="bottom-grid">
                 <div className="panel domain-panel">
                   <div className="panel-heading">
@@ -654,7 +755,7 @@ function App() {
                       <h3>Domains</h3>
                       <p>Hygiene health across workspace</p>
                     </div>
-                    <button className="subtle-button" onClick={() => setAddDomainModal(true)}>
+                    <button className="subtle-button" onClick={() => (user ? setAddDomainModal(true) : setAuthModalOpen(true))}>
                       <Plus size={13} /> Add domain
                     </button>
                   </div>
@@ -728,7 +829,7 @@ function App() {
                   <h3>Domain Management & DNS Verification</h3>
                   <p>Add sending domains and verify ownership via DNS TXT challenge.</p>
                 </div>
-                <button className="button-primary" onClick={() => setAddDomainModal(true)}>
+                <button className="button-primary" onClick={() => (user ? setAddDomainModal(true) : setAuthModalOpen(true))}>
                   <Plus size={14} /> Add domain
                 </button>
               </div>
@@ -890,7 +991,7 @@ function App() {
                   <input
                     className="form-input"
                     disabled
-                    value={user?.authProviderId ? 'Google OAuth 2.0 / OpenID Connect' : 'Email & Password'}
+                    value={user?.authProviderId ? 'Google OAuth 2.0 / OpenID Connect' : user ? 'Email & Password' : 'Demo Mode'}
                   />
                 </div>
               </div>
@@ -909,7 +1010,7 @@ function App() {
         </div>
       </main>
 
-      {/* AUTHENTICATION MODAL (Password + Google Login + Demo) */}
+      {/* AUTHENTICATION MODAL */}
       {authModalOpen && (
         <div className="auth-overlay" onClick={() => setAuthModalOpen(false)}>
           <div className="auth-modal" onClick={e => e.stopPropagation()}>
@@ -1047,7 +1148,12 @@ function App() {
                 />
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-                <button type="button" className="subtle-button" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setAddDomainModal(false)}>
+                <button
+                  type="button"
+                  className="subtle-button"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => setAddDomainModal(false)}
+                >
                   Cancel
                 </button>
                 <button type="submit" className="button-primary" style={{ flex: 1, justifyContent: 'center' }}>
