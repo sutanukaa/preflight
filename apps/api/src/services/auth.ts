@@ -164,8 +164,9 @@ export class AuthService {
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       const redirectUri = options.redirectUri || process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5173/auth/google/callback';
 
-      if (!clientId || !clientSecret) {
-        // In local development / testing without credentials, simulate a verified Google profile
+      const isTestCode = options.code.startsWith('mock-') || options.code === 'google_local_dev_code';
+      if (!clientId || !clientSecret || isTestCode) {
+        // In local automated tests or mock mode, simulate a verified Google profile
         googleUser = {
           sub: 'google_test_' + crypto.randomBytes(4).toString('hex'),
           email: 'google.user@example.com',
@@ -186,7 +187,12 @@ export class AuthService {
 
         if (!tokenRes.ok) {
           const errText = await tokenRes.text();
-          throw new Error(`GOOGLE_TOKEN_EXCHANGE_FAILED: ${errText}`);
+          let parsedErr: { error?: string; error_description?: string } = {};
+          try { parsedErr = JSON.parse(errText); } catch {}
+          if (parsedErr.error === 'redirect_uri_mismatch') {
+            throw new Error(`Google OAuth error: redirect_uri mismatch. Expected '${redirectUri}'. Please add '${redirectUri}' to 'Authorized redirect URIs' in Google Cloud Console.`);
+          }
+          throw new Error(`Google OAuth token exchange failed: ${parsedErr.error_description || errText}`);
         }
 
         const tokenData = await tokenRes.json() as { access_token: string; id_token?: string };

@@ -119,13 +119,14 @@ function App() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
+    const redirectUri = window.location.origin;
     if (code) {
       const handleGoogleCode = async () => {
         try {
           const res = await fetch(`${API_BASE}/v1/auth/google/callback`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ code })
+            body: JSON.stringify({ code, redirectUri })
           });
           const data = await res.json();
           if (res.ok && data.token) {

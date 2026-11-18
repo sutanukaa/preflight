@@ -1,4 +1,11 @@
-import 'dotenv/config';
+import path from 'node:path';
+import dotenv from 'dotenv';
+
+const rootDir = path.resolve(import.meta.dirname, '../../..');
+dotenv.config({ path: path.join(rootDir, '.env.local') });
+dotenv.config({ path: path.join(rootDir, '.env') });
+dotenv.config({ path: '.env.local' });
+dotenv.config();
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import pino from 'pino';
