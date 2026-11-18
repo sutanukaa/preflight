@@ -1,45 +1,86 @@
-# Preflight
+# Clarity AI — AI Video Interaction & Post-Meeting Intelligence SaaS
 
-**Email health, verified.** Preflight is a Node.js-first deliverability hygiene copilot. It receives a real test message, evaluates authentication and transport evidence, guides DNS remediation, then monitors the domain for regressions.
+Clarity AI is a full-stack Node.js (Next.js 15 App Router + React 19) SaaS platform providing interactive live video calls with personalized AI agents, followed by automated Inngest background processing and a comprehensive Post-Meeting Intelligence Suite.
 
-> Important: this repository is a starter scaffold, not a production-ready deliverability service. The dashboard currently contains representative workspace data. DNS endpoints are real Node.js lookups; inbound email parsing, persistence, authentication, AI remediation and scheduled monitoring are intentionally marked as implementation tasks in `AGENT_BUILD_SPEC.md`. Never represent sample dashboard values as live results.
+Built with strict adherence to the clean, editorial design standards specified in `BRAND_IDENTITY.md`.
 
-## Mandatory runtime
-- Node.js 22.12+ (Node.js is mandatory; no Python backend)
-- npm 10+
-- PostgreSQL 16+
-- Redis 7+
+---
 
-## Quick start
-1. Install Node.js 22.12 or newer.
-2. Copy `.env.example` to `.env` and configure secrets.
-3. From this directory run `npm install`.
-4. Start PostgreSQL and Redis (see `infra/docker-compose.yml`).
-5. Run `npm run dev`.
-6. Open the Vite app at `http://localhost:5173`; API health is at `http://localhost:4000/health`; OpenAPI UI is at `http://localhost:4000/docs`.
+## 🌟 Key Features
 
-The UI includes a functional DNS-check action against the local API. The unique test inbox is a visual placeholder until an inbound provider adapter is configured. Use a provider such as Postmark, Mailgun or Cloudflare Email Routing to forward inbound messages to a webhook; this avoids relying on port 25 on typical app hosts.
+### 1. Live AI Video Interaction
+- **Stream Video SDK & OpenAI Realtime Integration**: Facilitates live video calls with personalized AI agents over WebRTC SFU topologies.
+- **Agent Personas**: Pre-configured specialists (Dr. Sarah Chen for Distributed Systems, Marcus Vance for Product Strategy, Elena Rostova for Pitch Coaching, David Kross for Technical Interviews) + Custom Specialist Builder.
+- **Audio Waveform & Reactive Audio**: Real-time visual feedback of agent speech, client-side camera/mic toggles, and live speech ticker.
+- **One-Click End Call Pipeline**: Gracefully concludes sessions and immediately triggers asynchronous background intelligence jobs.
 
-## Workspace map
-- `AGENT_BUILD_SPEC.md` — canonical implementation brief for an autonomous coding agent.
-- `BRAND_IDENTITY.md` — visual identity, UI system, typography, colour, and anti-slop rules.
-- `apps/api` — Fastify / TypeScript Node.js API, DNS resolver and OpenAPI.
-- `apps/web` — React / Vite dashboard and custom UI styling.
-- `packages/shared` — Zod contracts shared across apps.
-- `docs/` — data model, checks, API and evaluation plans.
-- `infra/` — local PostgreSQL + Redis services.
+### 2. Inngest Background Processing Pipeline
+- **Event-Driven Orchestration**: Listens for `call.ended` events via Inngest step functions (`src/lib/inngest/functions.ts`).
+- **Automated Multi-Stage Workflow**:
+  1. `transcribe-meeting-audio`: Ingests speech chunks and generates timestamped speaker utterances.
+  2. `extract-topic-segmentation`: Groups conversation into timestamped topic blocks (e.g., `00:45`, `06:12`, `14:28`).
+  3. `synthesize-action-items-and-summary`: Synthesizes executive overview, prioritized action deliverables, key takeaways, and sentiment analysis.
+  4. `persist-meeting-state`: Atomically updates database records.
 
-## Commands
+### 3. Post-Meeting Intelligence Suite Dashboard
+- **Synchronized Video Player**: Replay recordings with play/pause, scrubbers, and instant time-jumping.
+- **Timestamped Topic Breakdown**: Clicking any topic badge (e.g. `[00:45]`) seeks the video player directly to that second!
+- **Searchable Transcripts**: Real-time indexed transcript search with speaker filters and keyword highlighting.
+- **Meeting AI Chat Copilot**: Conversational RAG assistant answering user questions grounded in the meeting transcript, with clickable jump-to timestamps.
+- **Deliverables & Sentiment**: Action items checklist with priority tags, assignee owners, and sentiment breakdown.
+
+### 4. SaaS Infrastructure
+- **Better Auth**: Multi-auth layer wired to Google OAuth credentials + demo sessions.
+- **Polar Subscription Management**: Integrates `@polar-sh/sdk` with tier cards (Free, Pro, Enterprise), checkout links, usage meters, and customer portal links.
+- **Drizzle ORM & Neon Postgres**: Database schemas for users, agents, meetings, transcripts, and summaries with seamless in-memory fallback for local dev.
+
+---
+
+## 🚀 Getting Started
+
+### 1. Install Dependencies
 ```bash
-npm install
-npm run dev
-npm run typecheck
-npm run build
-npm test
+npm install --legacy-peer-deps
 ```
 
-## Deployment shape
-Deploy the web app and API as Node.js services. For inbound email, configure a dedicated subdomain and an inbound email provider that posts raw MIME or parsed headers to the API. Verify webhook signatures, enforce idempotency, limit payload size, and encrypt sensitive stored message data. Run BullMQ workers separately from the API process. Keep SMTP receiving infrastructure separate if operating your own MTA; port 25 availability must be confirmed with the host.
+### 2. Environment Configuration
+Populate `.env.local` or `.env`:
+```env
+# Google OAuth
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
 
-## Product promise
-Preflight tests email authentication and sending-domain hygiene. It does **not** predict Gmail/Outlook inbox placement, guarantee inbox delivery, or replace reputation and content testing. Explain this distinction in onboarding, reports and marketing.
+# Stream Video SDK
+STREAM_API_KEY=your_stream_api_key
+STREAM_API_SECRET=your_stream_api_secret
+
+# Polar SaaS
+POLAR_ACCESS_TOKEN=your_polar_token
+
+# Inngest
+INNGEST_EVENT_KEY=local_dev_event_key
+
+# Better Auth
+BETTER_AUTH_SECRET=dev_secret_key_needs_32_characters_for_better_auth_session
+BETTER_AUTH_URL=http://localhost:3000
+
+# PostgreSQL (optional, defaults to rich in-memory store)
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+```
+
+### 3. Run Development Server
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
+
+---
+
+## 🎨 Design System
+Strict adherence to `BRAND_IDENTITY.md`:
+- Canvas: `#F6F7F8`
+- Surface: `#FFFFFF`
+- Ink: `#202A32`
+- Line: `#E8ECEE`
+- Brand Green: `#294F4D`
+- Typography: `Manrope` (UI) and `DM Mono` (Technical timestamps & code)

@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500&family=Manrope:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: #F6F7F8;
+  --surface: #FFFFFF;
+  --ink: #202A32;
+  --ink-soft: #44525A;
+  --muted: #7B8790;
+  --line: #E8ECEE;
+  --brand: #294F4D;
+  --brand-deep: #1D4140;
+  --success: #247B60;
+  --success-bg: #E8F3EE;
+  --warning: #AD782A;
+  --warning-bg: #FBF3E5;
+  --danger: #B34D4A;
+  --danger-bg: #F8EDEC;
+  --font-manrope: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-dm-mono: 'DM Mono', monospace;
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-manrope);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbars matching hairline aesthetic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D9DFE2;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #BAC3C8;
+}
+
+/* Code & monospace elements */
+code, pre, .font-mono {
+  font-family: var(--font-dm-mono);
+}
+
+/* Tabular numerals for timestamps & stats */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
