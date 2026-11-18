@@ -14,13 +14,13 @@ export const dbPool = process.env.DATABASE_URL
 
 export const db = dbPool ? drizzle(dbPool, { schema }) : null;
 
-// Initialized standard specialist agents (clean profiles, no testimonials/ratings)
+// Standard specialist agents with generated custom vector avatars (no stock photos, no fake testimonials)
 export const SEED_AGENTS: AIAgent[] = [
   {
     id: "agent-sarah",
     name: "Dr. Sarah Chen",
     role: "Principal Distributed Systems Architect",
-    avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&auto=format&fit=crop&q=80",
+    avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=DrSarahChen&backgroundColor=b6e3f4,c0aede,d1d4f9",
     bio: "Systems architect specializing in high-throughput distributed systems, WebRTC streaming, and event-driven architectures.",
     systemPrompt: "You are Dr. Sarah Chen, an authoritative systems architect. You ask incisive questions about concurrency, bottlenecks, failover strategies, and caching tiers.",
     voice: "alloy",
@@ -30,7 +30,7 @@ export const SEED_AGENTS: AIAgent[] = [
     id: "agent-marcus",
     name: "Marcus Vance",
     role: "VP of Product Strategy",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
+    avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=MarcusVance&backgroundColor=ffdfbf,ffd5dc,d1d4f9",
     bio: "SaaS operator specializing in monetization, pricing models, feature prioritization, and product-market fit.",
     systemPrompt: "You are Marcus Vance, a VP of Product. You challenge assumptions around user retention, pricing friction, and roadmap focus.",
     voice: "echo",
@@ -40,7 +40,7 @@ export const SEED_AGENTS: AIAgent[] = [
     id: "agent-elena",
     name: "Elena Rostova",
     role: "Executive Communication & Pitch Coach",
-    avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=400&auto=format&fit=crop&q=80",
+    avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=ElenaRostova&backgroundColor=c0aede,d1d4f9,ffd5dc",
     bio: "Communication coach focusing on narrative hooks, brevity, pacing, handling objections, and crisp executive delivery.",
     systemPrompt: "You are Elena Rostova, an executive pitch coach. You evaluate tone, clarity, brevity, and narrative structure, giving constructive real-time feedback.",
     voice: "shimmer",
@@ -50,7 +50,7 @@ export const SEED_AGENTS: AIAgent[] = [
     id: "agent-david",
     name: "David Kross",
     role: "Senior Engineering Hiring Manager",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80",
+    avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=DavidKross&backgroundColor=b6e3f4,ffdfbf,c0aede",
     bio: "Engineering hiring manager conducting realistic system design and behavioral interview rounds with granular rubric scoring.",
     systemPrompt: "You are David Kross, conducting an interview. You evaluate the candidate against senior-level criteria with deep technical follow-ups.",
     voice: "fable",

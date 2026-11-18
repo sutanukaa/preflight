@@ -10,11 +10,12 @@ export const processMeetingEnded = inngest.createFunction(
     triggers: [{ event: "call.ended" }],
   },
   async ({ event, step }: any) => {
-    const { meetingId, durationSeconds, recordingUrl, utterances } = event.data as {
+    const { meetingId, durationSeconds, recordingUrl, utterances, userName = "Participant" } = event.data as {
       meetingId: string;
       durationSeconds: number;
       recordingUrl?: string;
       utterances?: TranscriptUtterance[];
+      userName?: string;
     };
 
     // Step 1: Ingest & Transcribe
@@ -36,7 +37,7 @@ export const processMeetingEnded = inngest.createFunction(
         {
           id: `u-${Date.now()}-2`,
           speaker: "user",
-          speakerName: "Alex (You)",
+          speakerName: `${userName} (You)`,
           timestamp: "00:18",
           seconds: 18,
           text: "We need to scale our real-time video infrastructure and automate the post-call intelligence workflows.",
@@ -52,7 +53,7 @@ export const processMeetingEnded = inngest.createFunction(
         {
           id: `u-${Date.now()}-4`,
           speaker: "user",
-          speakerName: "Alex (You)",
+          speakerName: `${userName} (You)`,
           timestamp: "01:15",
           seconds: 75,
           text: "Can you summarize the action items and key milestones we agreed on?",
@@ -115,7 +116,7 @@ export const processMeetingEnded = inngest.createFunction(
         {
           id: `act-1`,
           task: "Review Inngest webhook security and configure signing secrets",
-          owner: "Alex",
+          owner: userName,
           priority: "high",
           status: "pending",
         },

@@ -26,7 +26,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { durationSeconds = 180, utterances = [], action } = body;
+    const { durationSeconds = 180, utterances = [], action, userName = "Participant" } = body;
 
     const meeting = inMemoryStore.getMeeting(id);
     if (!meeting) {
@@ -65,7 +65,7 @@ export async function POST(
             {
               id: `tr-${id}-2`,
               speaker: "user",
-              speakerName: "Alex (You)",
+              speakerName: `${userName} (You)`,
               timestamp: "00:22",
               seconds: 22,
               text: "We are designing our real-time video intelligence workflow, streaming live audio into OpenAI Realtime and processing calls with Inngest.",
@@ -81,7 +81,7 @@ export async function POST(
             {
               id: `tr-${id}-4`,
               speaker: "user",
-              speakerName: "Alex (You)",
+              speakerName: `${userName} (You)`,
               timestamp: "01:45",
               seconds: 105,
               text: "And how do we ensure the user can jump straight to relevant points when reviewing the meeting transcript?",
@@ -149,7 +149,7 @@ export async function POST(
             {
               id: `act-${id}-1`,
               task: "Verify WebRTC token generation security parameters",
-              owner: "Alex",
+              owner: userName,
               priority: "high",
               status: "completed",
             },

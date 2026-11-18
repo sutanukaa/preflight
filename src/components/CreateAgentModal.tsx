@@ -26,6 +26,7 @@ export function CreateAgentModal({
     e.preventDefault();
     setLoading(true);
     try {
+      const avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name || "CustomAgent")}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -35,6 +36,7 @@ export function CreateAgentModal({
           bio,
           systemPrompt,
           voice,
+          avatar: avatarUrl,
           tags: ["Custom Specialist", role.split(" ")[0]],
         }),
       });

@@ -69,7 +69,7 @@ export async function POST(
         aiResponseText = `At [${matched.timestamp}], ${matched.speakerName} noted:\n"${matched.text}"\n\nThis relates directly to your question about "${userQuery}".`;
         referencedSeconds = [matched.seconds];
       } else {
-        aiResponseText = `Based on the conversation transcript between Alex and ${meeting.agent?.name || "AI Specialist"}, the session addressed: ${topics.map((t) => `${t.title} at [${t.timestamp}]`).join(", ")}. Let me know if you would like me to deep dive into any specific topic!`;
+        aiResponseText = `Based on the conversation transcript between you and ${meeting.agent?.name || "AI Specialist"}, the session addressed: ${topics.map((t) => `${t.title} at [${t.timestamp}]`).join(", ")}. Let me know if you would like me to deep dive into any specific topic!`;
         referencedSeconds = topics.map((t) => t.seconds);
       }
     }

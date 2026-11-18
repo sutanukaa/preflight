@@ -22,12 +22,15 @@ import {
 } from "lucide-react";
 import { AIAgent, Meeting, TranscriptUtterance } from "@/types";
 import { Waveform } from "@/components/Waveform";
+import { useSession } from "@/lib/auth-client";
 
 export default function MeetingRoomPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const { data: authSession } = useSession();
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [userName, setUserName] = useState("You");
   const [micActive, setMicActive] = useState(true);
   const [videoActive, setVideoActive] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -44,6 +47,20 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  // Sync real user name from Google OAuth session
+  useEffect(() => {
+    if (authSession?.user?.name) {
+      setUserName(authSession.user.name);
+    } else {
+      fetch("/api/auth/me")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.user?.name) setUserName(d.user.name);
+        })
+        .catch(() => {});
+    }
+  }, [authSession]);
 
   // Play spoken response via Web Speech Synthesis
   function speakWithSyntheticVoice(text: string) {
@@ -239,7 +256,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     const userUtterance: TranscriptUtterance = {
       id: `u-user-${Date.now()}`,
       speaker: "user",
-      speakerName: "Alex (You)",
+      speakerName: `${userName} (You)`,
       timestamp: timeFormatted,
       seconds: callDuration,
       text: spokenText.trim(),
@@ -312,6 +329,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           action: "end_call",
           durationSeconds: Math.max(callDuration, 30),
           utterances: liveUtterances,
+          userName: userName,
         }),
       });
 
@@ -384,7 +402,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <div className="flex flex-col items-center justify-center my-auto z-10">
             <div className="relative">
               <img
-                src={agent?.avatar || "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&auto=format&fit=crop&q=80"}
+                src={agent?.avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=SpecialistAI&backgroundColor=b6e3f4,c0aede,d1d4f9"}
                 alt={agent?.name || "AI Specialist"}
                 className={`w-32 h-32 rounded-full object-cover border-4 transition-all duration-300 ${
                   agentSpeaking ? "border-brand shadow-[0_0_25px_rgba(41,79,77,0.6)]" : "border-surface/20"
@@ -419,7 +437,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         <div className="relative bg-ink rounded-lg border border-line overflow-hidden flex flex-col justify-between p-6">
           <div className="flex items-center justify-between z-10">
             <span className="text-[10px] font-mono bg-black/60 backdrop-blur-sm text-white px-2 py-1 rounded">
-              {isScreenSharing ? "Your Screen Share" : "Your Video Feed"}
+              {isScreenSharing ? "Your Screen Share" : `${userName} (You)`}
             </span>
             <span className="text-[10px] font-mono text-white/60">
               WebRTC Egress • 1080p
