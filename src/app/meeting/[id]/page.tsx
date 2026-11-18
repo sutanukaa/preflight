@@ -249,8 +249,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const secs = callDuration % 60;
   const timeFormatted = `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 
-  // Process User Speech & Generate Agent Response
-  function processSpokenInput(spokenText: string) {
+  // Process User Speech & Generate In-Character Agent Response
+  async function processSpokenInput(spokenText: string) {
     if (!spokenText.trim() || !meeting) return;
 
     const userUtterance: TranscriptUtterance = {
@@ -262,28 +262,27 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       text: spokenText.trim(),
     };
 
-    setLiveUtterances((prev) => [...prev, userUtterance]);
+    const updatedHistory = [...liveUtterances, userUtterance];
+    setLiveUtterances(updatedHistory);
     setAgentSpeaking(true);
 
-    setTimeout(() => {
-      const agentName = meeting.agent?.name || "AI Specialist";
-      const lower = spokenText.toLowerCase();
-      let reply = `That is an excellent point regarding "${spokenText.slice(0, 36)}...". Let's trace how that impacts our pipeline latency and data contracts.`;
+    try {
+      const res = await fetch(`/api/meetings/${id}/agent-response`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userText: spokenText.trim(),
+          history: updatedHistory,
+        }),
+      });
 
-      if (lower.includes("inngest") || lower.includes("background")) {
-        reply = "Inngest step-functions give us guaranteed execution and idempotency, preventing edge timeouts when processing audio chunks.";
-      } else if (lower.includes("polar") || lower.includes("pricing") || lower.includes("tier")) {
-        reply = "With Polar, usage metrics link directly to subscription checkouts, allowing seamless upgrades when users reach call duration limits.";
-      } else if (lower.includes("webrtc") || lower.includes("stream") || lower.includes("sfu")) {
-        reply = "Stream Video's Selective Forwarding Units (SFUs) distribute the video streams with minimal latency overhead across global edge clusters.";
-      } else if (lower.includes("action") || lower.includes("next step") || lower.includes("todo")) {
-        reply = "I have noted this item. Once we conclude the call, Inngest will index it into the action deliverables on your dashboard.";
-      }
+      const data = await res.json();
+      const reply = data.reply || "I am analyzing that. Let's dig deeper.";
 
       const agentUtterance: TranscriptUtterance = {
         id: `u-agent-${Date.now()}`,
         speaker: "agent",
-        speakerName: agentName,
+        speakerName: meeting.agent?.name || "AI Specialist",
         timestamp: `${Math.floor((callDuration + 2) / 60).toString().padStart(2, "0")}:${((callDuration + 2) % 60).toString().padStart(2, "0")}`,
         seconds: callDuration + 2,
         text: reply,
@@ -291,7 +290,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
       setLiveUtterances((prev) => [...prev, agentUtterance]);
       speakWithSyntheticVoice(reply);
-    }, 1100);
+    } catch (err) {
+      console.error("Agent reply error:", err);
+      setAgentSpeaking(false);
+    }
   }
 
   // Handle manual input form
