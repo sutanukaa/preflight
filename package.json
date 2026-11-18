@@ -1,0 +1,17 @@
+{
+  "name": "preflight-email-deliverability",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node.js-first email authentication and deliverability hygiene copilot",
+  "workspaces": ["apps/api", "apps/web", "packages/shared"],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {"concurrently": "^9.1.2", "typescript": "^5.7.3" },
+  "engines": {"node": ">=22.12.0"}
+}
