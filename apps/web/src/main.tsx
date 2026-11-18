@@ -497,17 +497,30 @@ function App() {
             <div className="profile-avatar">
               {user ? (user.name ? user.name.charAt(0) : user.email.charAt(0).toUpperCase()) : 'SC'}
             </div>
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <b>{user ? (user.name || user.email.split('@')[0]) : 'Sutanuka C.'}</b>
               <small>{user ? (user.authProviderId ? 'Google Account' : 'Password Login') : 'Demo account'}</small>
             </div>
             {user ? (
               <button
                 onClick={handleLogout}
-                style={{ background: 'none', border: 0, color: '#88959c', cursor: 'pointer', padding: 4 }}
-                title="Sign out"
+                style={{
+                  background: '#f8edec',
+                  border: '1px solid #f2dede',
+                  borderRadius: 4,
+                  color: '#b34d4a',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 10,
+                  fontWeight: 700
+                }}
+                title="Log out"
               >
-                <LogOut size={15} />
+                <LogOut size={12} />
+                <span>Log out</span>
               </button>
             ) : (
               <button
@@ -530,9 +543,28 @@ function App() {
           </div>
           <div className="top-actions">
             {user ? (
-              <div className="user-badge">
-                <span className="dot green" style={{ width: 6, height: 6 }} />
-                <span>{user.email}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="user-badge">
+                  <span className="dot green" style={{ width: 6, height: 6 }} />
+                  <span>{user.email}</span>
+                </div>
+                <button
+                  className="subtle-button"
+                  onClick={handleLogout}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    color: '#b34d4a',
+                    borderColor: '#f2dede',
+                    padding: '5px 10px',
+                    fontWeight: 700
+                  }}
+                  title="Sign out of your account"
+                >
+                  <LogOut size={13} />
+                  <span>Log out</span>
+                </button>
               </div>
             ) : (
               <button
@@ -995,6 +1027,29 @@ function App() {
                     value={user?.authProviderId ? 'Google OAuth 2.0 / OpenID Connect' : user ? 'Email & Password' : 'Demo Mode'}
                   />
                 </div>
+                {user && (
+                  <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
+                    <label style={{ font: '500 10px "DM Mono"', color: 'var(--muted)', display: 'block', marginBottom: 8 }}>
+                      SESSION & SECURITY
+                    </label>
+                    <button
+                      className="subtle-button"
+                      onClick={handleLogout}
+                      style={{
+                        color: '#b34d4a',
+                        borderColor: '#f2dede',
+                        padding: '8px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 7,
+                        fontWeight: 700
+                      }}
+                    >
+                      <LogOut size={14} />
+                      <span>Log out of {user.email}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
