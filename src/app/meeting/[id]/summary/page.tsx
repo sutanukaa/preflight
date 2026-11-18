@@ -12,16 +12,18 @@ import {
   Sparkles,
   Clock,
   CheckCircle2,
+  Circle,
   ListTodo,
-  ExternalLink,
   Send,
   RotateCcw,
-  Volume2,
-  Calendar,
   Share2,
   ArrowLeft,
+  Download,
+  Copy,
+  Check,
+  FileDown,
 } from "lucide-react";
-import { Meeting, MeetingChatMessage, MeetingTopic, TranscriptUtterance } from "@/types";
+import { ActionItem, Meeting, MeetingChatMessage, MeetingTopic, TranscriptUtterance } from "@/types";
 
 export default function MeetingSummaryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -47,6 +49,8 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
 
   // Active Tab: "summary" | "transcript" | "copilot"
   const [activeTab, setActiveTab] = useState<"summary" | "transcript" | "copilot">("summary");
+  const [copiedSummary, setCopiedSummary] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Load meeting details
   useEffect(() => {
@@ -111,6 +115,89 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
     }
   }
 
+  // Toggle Action Item Status
+  async function handleToggleActionItem(actionItemId: string) {
+    if (!meeting?.summary) return;
+
+    try {
+      const res = await fetch(`/api/meetings/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionItemId }),
+      });
+      const data = await res.json();
+      if (data.meeting) {
+        setMeeting(data.meeting);
+      }
+    } catch (err) {
+      console.error("Failed to toggle action item:", err);
+    }
+  }
+
+  // Copy full summary to clipboard
+  function handleCopySummary() {
+    if (!meeting?.summary) return;
+
+    const text = [
+      `# ${meeting.title}`,
+      `Date: ${new Date(meeting.startedAt).toLocaleDateString()}`,
+      `Specialist: ${meeting.agent?.name || "AI Specialist"}`,
+      "",
+      `## Executive Overview`,
+      meeting.summary.overview,
+      "",
+      `## Key Decisions & Takeaways`,
+      ...meeting.summary.keyTakeaways.map((t) => `- ${t}`),
+      "",
+      `## Action Deliverables`,
+      ...meeting.summary.actionItems.map(
+        (a) => `- [${a.status === "completed" ? "x" : " "}] ${a.task} (Owner: ${a.owner}, Priority: ${a.priority.toUpperCase()})`
+      ),
+    ].join("\n");
+
+    navigator.clipboard?.writeText(text);
+    setCopiedSummary(true);
+    setTimeout(() => setCopiedSummary(false), 2000);
+  }
+
+  // Export transcript in different formats
+  function handleExport(format: "markdown" | "txt" | "vtt" | "json") {
+    if (!meeting?.transcripts) return;
+    setShowExportMenu(false);
+
+    let content = "";
+    let mimeType = "text/plain";
+    let extension = "txt";
+
+    if (format === "markdown") {
+      content = `# Transcript: ${meeting.title}\n\n` +
+        meeting.transcripts.map((u) => `**[${u.timestamp}] ${u.speakerName}**: ${u.text}`).join("\n\n");
+      mimeType = "text/markdown";
+      extension = "md";
+    } else if (format === "vtt") {
+      content = "WEBVTT\n\n" +
+        meeting.transcripts
+          .map((u, i) => `${i + 1}\n00:${u.timestamp}.000 --> 00:${formatSeconds(u.seconds + 4)}.000\n${u.speakerName}: ${u.text}`)
+          .join("\n\n");
+      mimeType = "text/vtt";
+      extension = "vtt";
+    } else if (format === "json") {
+      content = JSON.stringify(meeting, null, 2);
+      mimeType = "application/json";
+      extension = "json";
+    } else {
+      content = meeting.transcripts.map((u) => `[${u.timestamp}] ${u.speakerName}: ${u.text}`).join("\n");
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meeting-${meeting.id}.${extension}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   // Send query to AI Copilot
   async function handleSendChat(customQuery?: string) {
     const q = (customQuery || chatInput).trim();
@@ -152,6 +239,13 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
     const s = Math.floor(sec % 60);
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
+
+  // Calculate talk-time metrics
+  const totalUtterances = meeting?.transcripts?.length || 1;
+  const agentUtterancesCount = (meeting?.transcripts || []).filter((u) => u.speaker === "agent").length;
+  const userUtterancesCount = totalUtterances - agentUtterancesCount;
+  const agentRatio = Math.round((agentUtterancesCount / totalUtterances) * 100);
+  const userRatio = 100 - agentRatio;
 
   if (loading) {
     return (
@@ -209,23 +303,71 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 relative">
+          <button
+            onClick={handleCopySummary}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-line bg-surface text-xs font-medium text-ink hover:bg-canvas transition-colors shadow-subtle"
+          >
+            {copiedSummary ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5 text-muted" />}
+            <span>{copiedSummary ? "Copied!" : "Copy Summary"}</span>
+          </button>
+
+          {/* Export Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-line bg-surface text-xs font-medium text-ink hover:bg-canvas transition-colors shadow-subtle"
+            >
+              <Download className="w-3.5 h-3.5 text-muted" />
+              <span>Export</span>
+            </button>
+
+            {showExportMenu && (
+              <div className="absolute right-0 mt-1 w-40 bg-surface border border-line rounded-md shadow-lg z-20 py-1 text-xs">
+                <button
+                  onClick={() => handleExport("markdown")}
+                  className="w-full text-left px-3 py-1.5 hover:bg-canvas text-ink flex items-center justify-between font-mono text-[11px]"
+                >
+                  <span>Markdown (.md)</span>
+                </button>
+                <button
+                  onClick={() => handleExport("txt")}
+                  className="w-full text-left px-3 py-1.5 hover:bg-canvas text-ink flex items-center justify-between font-mono text-[11px]"
+                >
+                  <span>Plain Text (.txt)</span>
+                </button>
+                <button
+                  onClick={() => handleExport("vtt")}
+                  className="w-full text-left px-3 py-1.5 hover:bg-canvas text-ink flex items-center justify-between font-mono text-[11px]"
+                >
+                  <span>Subtitles (.vtt)</span>
+                </button>
+                <button
+                  onClick={() => handleExport("json")}
+                  className="w-full text-left px-3 py-1.5 hover:bg-canvas text-ink flex items-center justify-between font-mono text-[11px]"
+                >
+                  <span>Full State (.json)</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => {
               navigator.clipboard?.writeText(window.location.href);
               alert("Meeting review link copied to clipboard!");
             }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded border border-line bg-surface text-xs font-medium text-ink hover:bg-canvas transition-colors shadow-subtle"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-line bg-surface text-xs font-medium text-ink hover:bg-canvas transition-colors shadow-subtle"
           >
             <Share2 className="w-3.5 h-3.5 text-muted" />
-            <span>Share Replay</span>
+            <span>Share</span>
           </button>
         </div>
       </div>
 
       {/* Main Grid: Video Player (Left) + Intelligence Suite (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (5 Cols): Video Player & Playback Control */}
+        {/* Left Column (5 Cols): Video Player & Deliverables */}
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-ink rounded-lg overflow-hidden border border-line shadow-card relative">
             <video
@@ -280,41 +422,73 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
             </div>
           </div>
 
-          {/* Quick Jump Action Items List */}
+          {/* Speaker Talk-Time Ratio Visualizer */}
+          <div className="bg-surface border border-line rounded-lg p-4 shadow-card space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-muted">Speaker Participation</span>
+              <span className="text-ink font-semibold">
+                {agentRatio}% Specialist / {userRatio}% You
+              </span>
+            </div>
+            <div className="w-full h-2 rounded-full overflow-hidden flex bg-canvas border border-line">
+              <div className="bg-brand h-full" style={{ width: `${agentRatio}%` }} title="Specialist talk ratio" />
+              <div className="bg-ink h-full" style={{ width: `${userRatio}%` }} title="User talk ratio" />
+            </div>
+          </div>
+
+          {/* Interactive Action Items Checklist */}
           <div className="bg-surface border border-line rounded-lg p-4 shadow-card space-y-3">
             <div className="flex items-center justify-between border-b border-line pb-2.5">
               <div className="flex items-center gap-2">
                 <ListTodo className="w-4 h-4 text-brand" />
-                <span className="text-xs font-bold text-ink">Action Items &amp; Deliverables</span>
+                <span className="text-xs font-bold text-ink">Action Deliverables</span>
               </div>
               <span className="text-[10px] font-mono text-muted">
-                {summary?.actionItems.length || 0} captured
+                {summary?.actionItems.filter((i) => i.status === "completed").length} of {summary?.actionItems.length || 0} completed
               </span>
             </div>
 
             <div className="space-y-2">
-              {summary?.actionItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-2.5 p-2 rounded bg-canvas border border-line text-xs"
-                >
-                  <span
-                    className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase mt-0.5 ${
-                      item.priority === "high"
-                        ? "bg-danger-bg text-danger"
-                        : "bg-warning-bg text-warning"
-                    }`}
+              {summary?.actionItems.map((item) => {
+                const isCompleted = item.status === "completed";
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => handleToggleActionItem(item.id)}
+                    className="flex items-start gap-2.5 p-2 rounded bg-canvas border border-line text-xs cursor-pointer hover:border-brand transition-colors group"
                   >
-                    {item.priority}
-                  </span>
-                  <div className="flex-1">
-                    <p className="font-medium text-ink leading-tight">{item.task}</p>
-                    <span className="text-[10px] text-muted font-mono mt-0.5 block">
-                      Owner: {item.owner} • Status: {item.status}
-                    </span>
+                    <button className="mt-0.5 text-muted group-hover:text-brand">
+                      {isCompleted ? (
+                        <CheckCircle2 className="w-4 h-4 text-success" />
+                      ) : (
+                        <Circle className="w-4 h-4 text-muted" />
+                      )}
+                    </button>
+                    <div className="flex-1">
+                      <p
+                        className={`font-medium leading-tight ${
+                          isCompleted ? "line-through text-muted" : "text-ink"
+                        }`}
+                      >
+                        {item.task}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] font-mono text-muted">
+                        <span>Owner: {item.owner}</span>
+                        <span>•</span>
+                        <span
+                          className={`uppercase px-1 rounded text-[9px] font-bold ${
+                            item.priority === "high"
+                              ? "bg-danger-bg text-danger"
+                              : "bg-warning-bg text-warning"
+                          }`}
+                        >
+                          {item.priority}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

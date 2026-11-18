@@ -179,3 +179,47 @@ export async function POST(
     return NextResponse.json({ error: "Failed to update meeting" }, { status: 500 });
   }
 }
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await req.json();
+    const meeting = inMemoryStore.getMeeting(id);
+
+    if (!meeting) {
+      return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
+    }
+
+    // Toggle or update action item status
+    if (body.actionItemId && meeting.summary) {
+      const items = meeting.summary.actionItems.map((item) => {
+        if (item.id === body.actionItemId) {
+          return {
+            ...item,
+            status: body.status || (item.status === "completed" ? "pending" : "completed"),
+          };
+        }
+        return item;
+      });
+
+      const updated = inMemoryStore.updateMeeting(id, {
+        summary: {
+          ...meeting.summary,
+          actionItems: items,
+        },
+      });
+
+      return NextResponse.json({ meeting: updated });
+    }
+
+    // General updates (e.g. title)
+    const updated = inMemoryStore.updateMeeting(id, body);
+    return NextResponse.json({ meeting: updated });
+  } catch (error) {
+    console.error("Patch meeting error:", error);
+    return NextResponse.json({ error: "Failed to update meeting" }, { status: 500 });
+  }
+}
