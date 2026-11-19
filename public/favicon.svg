@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="7" fill="#294F4D"/>
+  <!-- Video camera body -->
+  <rect x="6" y="9" width="13" height="14" rx="2.5" fill="#FFFFFF"/>
+  <!-- Camera lens triangle -->
+  <path d="M20.5 12.8L25.2 9.5C25.7 9.15 26.5 9.5 26.5 10.15V21.85C26.5 22.5 25.7 22.85 25.2 22.5L20.5 19.2V12.8Z" fill="#FFFFFF"/>
+  <!-- AI Spark / Dot Indicator -->
+  <circle cx="10" cy="13" r="1.5" fill="#2DD4BF"/>
+</svg>
