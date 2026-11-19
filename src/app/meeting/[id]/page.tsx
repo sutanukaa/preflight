@@ -385,7 +385,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
                 }
               };
 
-              recorder.start(1000); // 1-second chunks
+              recorder.start(); // Continuous streaming container for clean timestamps
               mediaRecorderRef.current = recorder;
             } catch (recErr) {
               console.warn("MediaRecorder start note:", recErr);
