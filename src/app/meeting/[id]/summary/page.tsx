@@ -96,22 +96,34 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
   }
 
   // Jump video player to specific seconds
-  function seekToSeconds(sec: number) {
-    if (videoRef.current) {
-      videoRef.current.currentTime = sec;
-      videoRef.current.play();
+  async function seekToSeconds(sec: number) {
+    if (!videoRef.current) return;
+    try {
+      const targetTime = Math.max(0, isFinite(sec) ? sec : 0);
+      videoRef.current.currentTime = targetTime;
+      setCurrentTime(targetTime);
+      await videoRef.current.play();
       setIsPlaying(true);
+    } catch (e) {
+      console.warn("Seek error:", e);
     }
   }
 
-  function togglePlayPause() {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
+  async function togglePlayPause() {
+    if (!videoRef.current) return;
+    try {
+      if (videoRef.current.paused) {
+        await videoRef.current.play();
+        setIsPlaying(true);
       } else {
-        videoRef.current.play();
+        videoRef.current.pause();
+        setIsPlaying(false);
       }
-      setIsPlaying(!isPlaying);
+    } catch (e) {
+      console.warn("Toggle play/pause error:", e);
+      if (videoRef.current) {
+        setIsPlaying(!videoRef.current.paused);
+      }
     }
   }
 
@@ -235,10 +247,18 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
   });
 
   const formatSeconds = (sec: number) => {
+    if (!sec || !isFinite(sec) || isNaN(sec) || sec < 0) return "00:00";
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
+
+  const safeDuration =
+    isFinite(duration) && duration > 0
+      ? duration
+      : meeting?.durationSeconds && meeting.durationSeconds > 0
+      ? meeting.durationSeconds
+      : 60;
 
   // Calculate talk-time metrics
   const totalUtterances = meeting?.transcripts?.length || 1;
@@ -370,32 +390,64 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
         {/* Left Column (5 Cols): Video Player & Deliverables */}
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-ink rounded-lg overflow-hidden border border-line shadow-card relative">
-            <video
-              ref={videoRef}
-              src={meeting.recordingUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"}
-              onError={(e) => {
-                const target = e.currentTarget;
-                if (!target.src.includes("BigBuckBunny")) {
-                  target.src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-                }
-              }}
-              onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={() => {
-                if (videoRef.current) {
-                  setDuration(videoRef.current.duration || meeting.durationSeconds);
-                }
-              }}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-              className="w-full aspect-video object-cover"
-            />
+            <div className="relative group cursor-pointer" onClick={togglePlayPause}>
+              <video
+                ref={videoRef}
+                src={meeting.recordingUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.includes("BigBuckBunny")) {
+                    target.src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+                  }
+                }}
+                onTimeUpdate={handleTimeUpdate}
+                onLoadedMetadata={() => {
+                  if (videoRef.current) {
+                    const d = videoRef.current.duration;
+                    if (isFinite(d) && d > 0) {
+                      setDuration(d);
+                    } else if (meeting.durationSeconds > 0) {
+                      setDuration(meeting.durationSeconds);
+                    } else {
+                      // Chromium WebM duration resolution fallback
+                      videoRef.current.currentTime = 1e101;
+                      videoRef.current.ontimeupdate = () => {
+                        if (!videoRef.current) return;
+                        videoRef.current.ontimeupdate = handleTimeUpdate;
+                        const realD = videoRef.current.currentTime;
+                        videoRef.current.currentTime = 0;
+                        setDuration(isFinite(realD) && realD > 0 ? realD : (meeting.durationSeconds || 60));
+                      };
+                    }
+                  }
+                }}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => {
+                  setIsPlaying(false);
+                  setCurrentTime(0);
+                }}
+                playsInline
+                preload="auto"
+                className="w-full aspect-video object-cover bg-black"
+              />
+
+              {/* Big Center Play Button Overlay when paused */}
+              {!isPlaying && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/35 hover:bg-black/20 transition-all pointer-events-none">
+                  <div className="w-14 h-14 rounded-full bg-brand text-white flex items-center justify-center shadow-lg transform transition-transform group-hover:scale-110">
+                    <Play className="w-6 h-6 fill-current ml-1" />
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Video Overlay Controls */}
             <div className="p-3 bg-surface border-t border-line flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
                 <button
                   onClick={togglePlayPause}
-                  className="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center hover:bg-brand-deep transition-colors shadow-subtle"
+                  className="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center hover:bg-brand-deep transition-colors shadow-subtle shrink-0"
                 >
                   {isPlaying ? (
                     <Pause className="w-3.5 h-3.5 fill-current" />
@@ -403,8 +455,8 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
                     <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
                   )}
                 </button>
-                <div className="font-mono text-xs text-ink font-semibold tabular-nums">
-                  {formatSeconds(currentTime)} / {formatSeconds(duration || meeting.durationSeconds)}
+                <div className="font-mono text-xs text-ink font-semibold tabular-nums shrink-0">
+                  {formatSeconds(currentTime)} / {formatSeconds(safeDuration)}
                 </div>
               </div>
 
@@ -412,15 +464,16 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
               <input
                 type="range"
                 min="0"
-                max={duration || meeting.durationSeconds || 100}
+                max={safeDuration}
+                step="0.1"
                 value={currentTime}
-                onChange={(e) => seekToSeconds(Number(e.target.value))}
+                onChange={(e) => seekToSeconds(parseFloat(e.target.value))}
                 className="flex-1 mx-4 accent-brand cursor-pointer"
               />
 
               <button
                 onClick={() => seekToSeconds(0)}
-                className="text-muted hover:text-ink text-xs font-mono flex items-center gap-1"
+                className="text-muted hover:text-ink text-xs font-mono flex items-center gap-1 shrink-0"
                 title="Rewind to start"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
