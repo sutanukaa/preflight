@@ -106,9 +106,15 @@ export default function AgentsDirectoryPage() {
                     <span className="text-[10px] font-mono bg-canvas border border-line text-brand font-semibold px-1.5 py-0.5 rounded">
                       Voice: {agent.voice}
                     </span>
-                    <span className="text-[10px] font-mono text-muted bg-canvas border border-line px-1.5 py-0.5 rounded">
-                      Realtime SFU
-                    </span>
+                    {agent.isCustom || agent.id.startsWith("agent-custom-") ? (
+                      <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-bold">
+                        🔒 Only Visible to You
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono text-muted bg-canvas border border-line px-1.5 py-0.5 rounded">
+                        Public Catalog
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -139,9 +145,15 @@ export default function AgentsDirectoryPage() {
             </div>
 
             <div className="pt-4 border-t border-line flex items-center justify-between">
-              <span className="text-[11px] font-mono text-muted">
-                Standard Specialist
-              </span>
+              {agent.isCustom || agent.id.startsWith("agent-custom-") ? (
+                <span className="text-[11px] font-mono text-emerald-700 font-medium">
+                  Custom Specialist
+                </span>
+              ) : (
+                <span className="text-[11px] font-mono text-muted">
+                  Standard Specialist
+                </span>
+              )}
               <Link
                 href={`/meeting/new?agentId=${agent.id}`}
                 className="flex items-center gap-2 px-3.5 py-1.5 rounded bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-colors shadow-subtle"

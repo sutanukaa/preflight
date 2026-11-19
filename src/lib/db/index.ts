@@ -138,6 +138,10 @@ class PersistentStore {
             : typeof row.tags === "string"
             ? JSON.parse(row.tags)
             : [],
+          creatorId: row.creator_id || null,
+          isCustom: Boolean(
+            row.is_custom || (row.creator_id && row.creator_id !== "") || row.id?.startsWith("agent-custom-")
+          ),
         };
         this.agents.set(agent.id, agent);
       }
@@ -147,7 +151,21 @@ class PersistentStore {
     }
   }
 
-  getAgents(): AIAgent[] {
+  getAgents(userId?: string | null): AIAgent[] {
+    const all = Array.from(this.agents.values());
+    // Catalog agents are visible to everyone.
+    // Custom-created agents are strictly private and only visible to the user who created them.
+    return all.filter((a) => {
+      const isCustomAgent = Boolean(
+        a.isCustom || (a.creatorId && a.creatorId !== "") || a.id?.startsWith("agent-custom-")
+      );
+      if (!isCustomAgent) return true; // Catalog specialist: visible to all
+      if (userId && a.creatorId === userId) return true; // Custom agent: visible ONLY to creator
+      return false;
+    });
+  }
+
+  getAllAgents(): AIAgent[] {
     return Array.from(this.agents.values());
   }
 
@@ -161,8 +179,8 @@ class PersistentStore {
     if (dbPool) {
       dbPool
         .query(
-          `INSERT INTO agents (id, name, role, avatar, bio, system_prompt, voice, tags, total_sessions, average_rating)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 98)
+          `INSERT INTO agents (id, name, role, avatar, bio, system_prompt, voice, tags, total_sessions, average_rating, creator_id, is_custom)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 98, $9, $10)
            ON CONFLICT (id) DO UPDATE SET
              name = EXCLUDED.name,
              role = EXCLUDED.role,
@@ -170,7 +188,9 @@ class PersistentStore {
              bio = EXCLUDED.bio,
              system_prompt = EXCLUDED.system_prompt,
              voice = EXCLUDED.voice,
-             tags = EXCLUDED.tags;`,
+             tags = EXCLUDED.tags,
+             creator_id = EXCLUDED.creator_id,
+             is_custom = EXCLUDED.is_custom;`,
           [
             agent.id,
             agent.name,
@@ -180,6 +200,8 @@ class PersistentStore {
             agent.systemPrompt,
             agent.voice,
             JSON.stringify(agent.tags || []),
+            agent.creatorId || null,
+            Boolean(agent.isCustom),
           ]
         )
         .catch((e) => console.warn("Neon sync agent note:", e.message));

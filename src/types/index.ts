@@ -18,6 +18,8 @@ export interface AIAgent {
   tags: string[];
   totalSessions?: number;
   averageRating?: number;
+  creatorId?: string | null;
+  isCustom?: boolean;
 }
 
 export interface TranscriptUtterance {

@@ -20,6 +20,8 @@ export const agents = pgTable("agents", {
   tags: jsonb("tags").$type<string[]>().default([]).notNull(),
   totalSessions: integer("total_sessions").default(0).notNull(),
   averageRating: integer("average_rating").default(98).notNull(),
+  creatorId: text("creator_id"),
+  isCustom: boolean("is_custom").default(false),
 });
 
 export const meetings = pgTable("meetings", {

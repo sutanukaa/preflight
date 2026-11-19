@@ -164,9 +164,16 @@ export default function DashboardPage() {
                     <p className="text-[11px] text-ink-soft leading-tight mt-0.5 line-clamp-1">
                       {agent.role}
                     </p>
-                    <span className="inline-block text-[9px] font-mono bg-canvas text-muted px-1.5 py-0.5 rounded mt-1">
-                      Voice: {agent.voice}
-                    </span>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="inline-block text-[9px] font-mono bg-canvas text-muted px-1.5 py-0.5 rounded">
+                        Voice: {agent.voice}
+                      </span>
+                      {agent.isCustom || agent.id.startsWith("agent-custom-") ? (
+                        <span className="inline-block text-[9px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-bold">
+                          🔒 Private
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 
