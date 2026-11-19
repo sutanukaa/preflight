@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { LogIn, Video, LogOut } from "lucide-react";
+import { LogIn, Video, LogOut, Loader2 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 
 interface UserInfo {
@@ -16,6 +16,7 @@ interface UserInfo {
 export function Topbar() {
   const { data: authSession, isPending } = useSession();
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   // Sync user state from Better Auth session, localStorage, or /api/auth/me
   useEffect(() => {
@@ -76,6 +77,7 @@ export function Topbar() {
 
   async function handleGoogleSignIn() {
     try {
+      setIsSigningIn(true);
       const res = await fetch("/api/auth/sign-in/social", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -87,9 +89,12 @@ export function Topbar() {
       const data = await res.json();
       if (data?.url) {
         window.location.href = data.url;
+      } else {
+        setIsSigningIn(false);
       }
     } catch (e) {
       console.error(e);
+      setIsSigningIn(false);
     }
   }
 
@@ -169,10 +174,20 @@ export function Topbar() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleGoogleSignIn}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-md bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-colors shadow-subtle"
+              disabled={isSigningIn}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-md bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-all shadow-subtle disabled:opacity-75 disabled:cursor-not-allowed"
             >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Sign in with Google</span>
+              {isSigningIn ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Sign in with Google</span>
+                </>
+              )}
             </button>
           </div>
         )}
