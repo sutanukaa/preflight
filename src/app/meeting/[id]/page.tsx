@@ -1477,8 +1477,17 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       const lower = spokenText.toLowerCase();
       let fallbackReply = `That is an insightful question about ${spokenText.slice(0, 35)}! Focusing on the foundational principles and real-world application gives you the clearest solution. Let us explore that together!`;
 
-      if (lower.includes("emotion") || lower.includes("feel") || lower.includes("express") || lower.includes("conversat")) {
-        fallbackReply = `To express emotion effectively in everyday conversations, anchor your message in the personal impact behind the facts rather than just the information itself. Naming your authentic emotions with sincerity creates genuine presence and deep human connection!`;
+      if (lower.includes("emotion") || lower.includes("feel") || lower.includes("express") || lower.includes("conversat") || lower.includes("better")) {
+        const prior = liveUtterancesRef.current
+          .filter((u) => u.speaker === "agent" && !u.text.toLowerCase().startsWith("hello! i am"))
+          .map((u) => u.text.toLowerCase());
+        const hasUsedFactImpact = prior.some((t) => t.includes("personal impact") || t.includes("hurdle") || t.includes("facts"));
+
+        if (hasUsedFactImpact) {
+          fallbackReply = `For truly better conversations, practice active empathetic listening by reflecting the underlying emotion rather than just responding to facts. When someone shares their day, asking how it felt for them signals deep care and builds lasting mutual trust!`;
+        } else {
+          fallbackReply = `To express emotion effectively in everyday conversations, anchor your message in the personal impact behind the facts rather than just the information itself. Naming your authentic feelings with sincerity creates genuine presence and deep human connection!`;
+        }
       } else if (lower.includes("pythagor") || lower.includes("triangle")) {
         fallbackReply = `The Pythagorean theorem tells us that a squared plus b squared equals c squared for right-angled triangles. For example, in a triangle with sides three and four, three squared is nine and four squared is sixteen, which adds to twenty-five, making the hypotenuse five!`;
       }

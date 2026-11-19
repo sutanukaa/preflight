@@ -23,22 +23,22 @@ export async function POST(
 
     const cleanUserText = userText.trim();
 
-    // Only attempt live Gemini call if an actual Google AI Studio key (starts with AIza) is configured
-    const geminiKey =
-      process.env.GEMINI_API_KEY?.startsWith("AIza") ? process.env.GEMINI_API_KEY :
-      process.env.OPENAI_API_KEY?.startsWith("AIza") ? process.env.OPENAI_API_KEY : null;
+    // Support any configured Gemini or OpenAI key
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
 
     if (geminiKey) {
       const modelsToTry = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
       ];
 
       // Build clean, alternating multi-turn history for Gemini
       const contents: any[] = [];
 
       if (Array.isArray(history) && history.length > 0) {
-        for (const h of history.slice(-6)) {
+        for (const h of history.slice(-8)) {
           if (!h.text || typeof h.text !== "string" || !h.text.trim()) continue;
           const role = h.speaker === "user" ? "user" : "model";
           const text = h.text.trim();
@@ -65,7 +65,8 @@ export async function POST(
 
       const instruction = `${systemPrompt}
 You are ${agentName}, ${agentRole}. You are currently on an interactive live voice call with the user.
-Answer the user's specific question directly, warmly, and thoroughly in 2 to 3 natural spoken sentences with a real-life example. Do not use markdown bullet points or LaTeX.`;
+Answer the user's specific question directly, warmly, and thoroughly in 2 to 3 natural spoken sentences with a practical example.
+Do NOT repeat phrases or examples you previously shared in this call. Each answer must address the user's latest point with fresh insight. Do not use bullet points or markdown.`;
 
       for (const modelName of modelsToTry) {
         try {
@@ -74,7 +75,7 @@ Answer the user's specific question directly, warmly, and thoroughly in 2 to 3 n
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              signal: AbortSignal.timeout(3000), // Fast 3s timeout
+              signal: AbortSignal.timeout(4000), // 4s timeout
               body: JSON.stringify({
                 system_instruction: {
                   parts: [{ text: instruction }],
@@ -247,7 +248,37 @@ Answer the user's specific question directly, warmly, and thoroughly in 2 to 3 n
     }
 
     // 11. Communication, Emotion & Everyday Conversations (for Elena Rostova)
-    if (lower.includes("emotion") || lower.includes("feel") || lower.includes("express") || lower.includes("conversat") || lower.includes("pitch") || lower.includes("story") || lower.includes("communicat")) {
+    if (
+      lower.includes("emotion") ||
+      lower.includes("feel") ||
+      lower.includes("express") ||
+      lower.includes("conversat") ||
+      lower.includes("pitch") ||
+      lower.includes("story") ||
+      lower.includes("communicat") ||
+      lower.includes("better") ||
+      lower.includes("listen") ||
+      lower.includes("talk")
+    ) {
+      const priorReplies = (Array.isArray(history) ? history : [])
+        .filter((h: any) => h.speaker === "agent" && !h.text.toLowerCase().startsWith("hello! i am"))
+        .map((h: any) => (h.text || "").toLowerCase());
+
+      const hasUsedFactImpact = priorReplies.some((r: string) => r.includes("personal impact") || r.includes("hurdle") || r.includes("facts"));
+      const hasUsedListening = priorReplies.some((r: string) => r.includes("active listening") || r.includes("empathetic") || r.includes("underlying"));
+
+      if (lower.includes("listen") || (hasUsedFactImpact && !hasUsedListening)) {
+        return NextResponse.json({
+          reply: `For truly better conversations, practice active empathetic listening by reflecting the underlying emotion rather than just responding to facts. When someone shares their day, asking "How did that feel for you?" or acknowledging their resilience instantly builds deep connection and mutual trust!`,
+        });
+      }
+
+      if (hasUsedFactImpact && hasUsedListening) {
+        return NextResponse.json({
+          reply: `Another powerful technique is matching your vocal warmth and pacing to the emotional depth of the conversation. Pausing for a second before responding signals genuine thoughtfulness and makes the other person feel heard and valued.`,
+        });
+      }
+
       return NextResponse.json({
         reply: `To express emotion effectively in everyday conversations, anchor your message in the personal impact behind the facts rather than just listing what happened. For example, instead of saying work was busy, tell someone you felt energized by overcoming a difficult hurdle. Naming your authentic feelings with sincerity creates genuine presence and turns ordinary interactions into lasting human connections!`,
       });
