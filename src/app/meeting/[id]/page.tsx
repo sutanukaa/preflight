@@ -1408,7 +1408,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
   // Process User Speech & Generate In-Character Agent Response
   async function processSpokenInput(spokenText: string) {
-    if (!spokenText.trim() || isSendingRef.current) return;
+    if (!spokenText.trim() || isSendingRef.current || isEndingCallRef.current) return;
 
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     setIsSending(true);
@@ -1445,6 +1445,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       });
 
       clearTimeout(timeoutId);
+      if (isEndingCallRef.current) return;
+
       const data = await res.json().catch(() => ({}));
       const reply =
         data.reply ||
@@ -1459,10 +1461,13 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         text: reply,
       };
 
-      setLiveUtterances((prev) => [...prev, agentUtterance]);
-      speakWithSyntheticVoice(reply);
+      if (!isEndingCallRef.current) {
+        setLiveUtterances((prev) => [...prev, agentUtterance]);
+        speakWithSyntheticVoice(reply);
+      }
     } catch (err: any) {
       clearTimeout(timeoutId);
+      if (isEndingCallRef.current) return;
       console.warn("Agent reply notice:", err?.message || err);
       const fallbackReply = `I'm listening closely, please go ahead!`;
       speakWithSyntheticVoice(fallbackReply);
@@ -1488,9 +1493,15 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   async function handleEndCall() {
     setIsEndingCall(true);
     isEndingCallRef.current = true;
-    if (animFrameIdRef.current) {
-      cancelAnimationFrame(animFrameIdRef.current);
-      animFrameIdRef.current = null;
+    speechSeqRef.current++;
+
+    if (speechAbortControllerRef.current) {
+      try { speechAbortControllerRef.current.abort(); } catch {}
+      speechAbortControllerRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch {}
+      abortControllerRef.current = null;
     }
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (activeBufferSourceRef.current) {
@@ -1502,6 +1513,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     if (activeAudioRef.current) {
       try {
         activeAudioRef.current.pause();
+        activeAudioRef.current.src = "";
         activeAudioRef.current = null;
       } catch {}
     }
@@ -1513,6 +1525,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         recognitionRef.current.abort();
       } catch {}
     }
+    setAgentSpeaking(false);
+    agentSpeakingRef.current = false;
+    setIsSending(false);
+    isSendingRef.current = false;
 
     // Stop canvas animation loop
     if (animFrameIdRef.current) {
@@ -1581,10 +1597,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         }),
       });
 
-      router.push(`/meeting/${id}/summary`);
+      window.location.href = `/meeting/${id}/summary`;
     } catch (err) {
       console.error(err);
-      router.push(`/meeting/${id}/summary`);
+      window.location.href = `/meeting/${id}/summary`;
     }
   }
 

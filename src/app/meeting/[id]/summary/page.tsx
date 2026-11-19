@@ -52,7 +52,7 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
-  // Load meeting details
+  // Load meeting details & poll for Gemini enhancement
   useEffect(() => {
     async function loadSummary() {
       try {
@@ -74,6 +74,26 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
       }
     }
     loadSummary();
+
+    // Poll every 3 seconds for up to 15 seconds to pick up asynchronous Gemini summary
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/meetings/${id}`);
+        const data = await res.json();
+        if (data.meeting) {
+          setMeeting(data.meeting);
+        }
+      } catch {}
+    }, 3000);
+
+    const stopPoll = setTimeout(() => {
+      clearInterval(pollInterval);
+    }, 18000);
+
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(stopPoll);
+    };
   }, [id]);
 
   // Video time update listener
