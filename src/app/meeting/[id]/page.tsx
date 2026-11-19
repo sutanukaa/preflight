@@ -872,6 +872,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           mediaStreamRef.current = stream;
           if (localVideoRef.current && !isScreenSharing) {
             localVideoRef.current.srcObject = stream;
+            localVideoRef.current.play().catch(() => {});
           }
 
           // 1. Initialize Web Audio Context for Dual-Channel Mixed Recording
@@ -981,6 +982,17 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       }
     };
   }, []);
+
+  // Ensure local video element stays attached and playing when room mounts or stream changes
+  useEffect(() => {
+    if (localVideoRef.current) {
+      const activeStream = isScreenSharing ? screenStreamRef.current : mediaStreamRef.current;
+      if (activeStream && localVideoRef.current.srcObject !== activeStream) {
+        localVideoRef.current.srcObject = activeStream;
+        localVideoRef.current.play().catch(() => {});
+      }
+    }
+  }, [meeting, isScreenSharing, videoActive]);
 
   // Continuous Hands-Free Voice Recognition Engine
   function startContinuousListening() {
@@ -1513,7 +1525,18 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <div className="absolute inset-0 flex items-center justify-center">
             {videoActive || isScreenSharing ? (
               <video
-                ref={localVideoRef}
+                ref={(el) => {
+                  localVideoRef.current = el;
+                  if (el) {
+                    const activeStream = isScreenSharingRef.current
+                      ? screenStreamRef.current
+                      : mediaStreamRef.current;
+                    if (activeStream && el.srcObject !== activeStream) {
+                      el.srcObject = activeStream;
+                      el.play().catch(() => {});
+                    }
+                  }
+                }}
                 autoPlay
                 playsInline
                 muted
