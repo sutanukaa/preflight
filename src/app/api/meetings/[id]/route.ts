@@ -11,7 +11,37 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const meeting = inMemoryStore.getMeeting(id);
+  let meeting = inMemoryStore.peekMeeting(id);
+
+  // If not yet in worker memory, check Neon PostgreSQL first before generating a fallback
+  if (!meeting && dbPool) {
+    try {
+      const res = await dbPool.query("SELECT * FROM meetings WHERE id = $1;", [id]);
+      if (res.rows[0]) {
+        const row = res.rows[0];
+        meeting = {
+          id: row.id,
+          title: row.title,
+          agentId: row.agent_id,
+          userId: row.user_id,
+          status: row.status,
+          startedAt: row.started_at
+            ? new Date(row.started_at).toISOString()
+            : new Date().toISOString(),
+          durationSeconds: row.duration_seconds || 0,
+          recordingUrl: row.recording_url || "",
+          transcripts: [],
+        };
+        inMemoryStore.setMeeting(id, meeting);
+      }
+    } catch (e) {
+      console.warn("Neon lookup meeting note:", e);
+    }
+  }
+
+  if (!meeting) {
+    meeting = inMemoryStore.getMeeting(id);
+  }
 
   if (!meeting) {
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });

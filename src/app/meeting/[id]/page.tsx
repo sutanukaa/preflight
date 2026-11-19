@@ -369,7 +369,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         if (data.meeting) {
           setMeeting(data.meeting);
 
-          const agentName = data.meeting.agent?.name || "David Kross";
+          const agentName = data.meeting.agent?.name || "AI Specialist";
           const initGreeting = `Hello! I am ${agentName}. Stream Video WebRTC connection established. What would you like to review or discuss today?`;
 
           const initUtterance: TranscriptUtterance = {
@@ -1360,7 +1360,24 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
   }
 
-  const agent = meeting?.agent;
+  if (!meeting) {
+    return (
+      <div className="min-h-[75vh] flex flex-col items-center justify-center p-8 text-center bg-surface border border-line rounded-lg shadow-subtle space-y-4">
+        <div className="w-16 h-16 rounded-full bg-brand-light text-brand flex items-center justify-center animate-pulse">
+          <Sparkles className="w-8 h-8" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-base font-bold text-ink">Connecting to AI Specialist Room...</h2>
+          <p className="text-xs text-muted font-mono flex items-center justify-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
+            <span>Establishing WebRTC &amp; Neural Audio Channels</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const agent = meeting.agent;
 
   return (
     <div className="space-y-4">
@@ -1375,7 +1392,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <span className="text-xs font-mono text-muted tabular-nums">{timeFormatted}</span>
           <span className="text-line">|</span>
           <span className="text-xs text-ink-soft">
-            Specialist: <strong className="text-ink">{agent?.name || "David Kross"}</strong>
+            Specialist: <strong className="text-ink">{agent?.name || "AI Specialist"}</strong>
           </span>
         </div>
 
@@ -1430,7 +1447,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <div className="flex items-center justify-between z-10">
             <span className="text-[10px] font-mono bg-black/60 backdrop-blur-sm text-white px-2 py-1 rounded flex items-center gap-1.5">
               <Sparkles className="w-3 h-3 text-brand" />
-              <span>{agent?.name || "David Kross"}</span>
+              <span>{agent?.name || "AI Specialist"}</span>
               <span className="text-white/60">
                 •{" "}
                 {selectedVoiceURI === "cloud-tts"
@@ -1463,8 +1480,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               )}
             </div>
 
-            <h3 className="text-white font-bold text-sm mt-4">{agent?.name || "David Kross"}</h3>
-            <p className="text-xs text-white/70 font-mono mt-0.5">{agent?.role || "Senior Engineering Hiring Manager"}</p>
+            <h3 className="text-white font-bold text-sm mt-4">{agent?.name || "AI Specialist"}</h3>
+            <p className="text-xs text-white/70 font-mono mt-0.5">{agent?.role || "Specialist Advisor"}</p>
 
             {/* Audio Waveform */}
             <div className="mt-4 w-48">

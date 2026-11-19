@@ -36,12 +36,12 @@ function NewMeetingContent() {
   }, [agentId, router]);
 
   return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6">
-      <div className="w-12 h-12 rounded-full bg-brand-light text-brand flex items-center justify-center mb-4 animate-pulse">
+    <div className="min-h-[75vh] flex flex-col items-center justify-center text-center p-6 bg-surface border border-line rounded-lg shadow-subtle space-y-3">
+      <div className="w-14 h-14 rounded-full bg-brand-light text-brand flex items-center justify-center animate-pulse">
         <Video className="w-6 h-6" />
       </div>
-      <h2 className="text-sm font-bold text-ink">Preparing Video Room</h2>
-      <p className="text-xs text-muted font-mono mt-1 flex items-center gap-2">
+      <h2 className="text-sm font-bold text-ink">Preparing AI Specialist Room</h2>
+      <p className="text-xs text-muted font-mono flex items-center gap-2">
         <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
         <span>{status}</span>
       </p>

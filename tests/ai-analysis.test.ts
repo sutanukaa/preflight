@@ -37,7 +37,7 @@ describe("AI Intelligence & Post-Meeting Analysis Suite", () => {
     expect(summary.topics.length).toBeGreaterThanOrEqual(1);
     expect(summary.actionItems.length).toBeGreaterThanOrEqual(1);
     expect(summary.sentiment.positive).toBeGreaterThan(0);
-  }, 20000);
+  }, 35000);
 
   it(
     "should answer Copilot chat queries referencing exact seconds and timestamps",

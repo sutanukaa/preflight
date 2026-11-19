@@ -187,6 +187,19 @@ class PersistentStore {
     return agent;
   }
 
+  hasMeeting(id: string): boolean {
+    return this.meetings.has(id);
+  }
+
+  peekMeeting(id: string): Meeting | undefined {
+    return this.meetings.get(id);
+  }
+
+  setMeeting(id: string, meeting: Meeting): void {
+    this.meetings.set(id, meeting);
+    this.persist();
+  }
+
   getMeetings(): Meeting[] {
     return Array.from(this.meetings.values()).sort(
       (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
@@ -197,7 +210,8 @@ class PersistentStore {
     let meeting = this.meetings.get(id);
     if (!meeting) {
       // Auto-create a guaranteed meeting record so the room NEVER 404s
-      const defaultAgent = this.agents.get("agent-david") || Array.from(this.agents.values())[0];
+      const agentList = Array.from(this.agents.values());
+      const defaultAgent = agentList[agentList.length - 1] || SEED_AGENTS[0];
       meeting = {
         id,
         title: `Interactive Video Session with ${defaultAgent.name}`,
