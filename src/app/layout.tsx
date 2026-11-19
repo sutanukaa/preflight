@@ -9,12 +9,12 @@ export const metadata: Metadata = {
     "Real-time video calls with personalized AI agents powered by Stream Video SDK, Inngest background pipelines, and timestamped post-meeting intelligence suite.",
   icons: {
     icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon.ico", sizes: "32x32" },
-      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.svg?v=clarity-v2", type: "image/svg+xml" },
+      { url: "/favicon.ico?v=clarity-v2", sizes: "32x32" },
+      { url: "/icon.svg?v=clarity-v2", type: "image/svg+xml" },
     ],
-    shortcut: "/favicon.svg",
-    apple: "/favicon.svg",
+    shortcut: "/favicon.svg?v=clarity-v2",
+    apple: "/favicon.svg?v=clarity-v2",
   },
 };
 
@@ -26,9 +26,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <link rel="alternate icon" href="/favicon.ico" />
-        <link rel="apple-touch-icon" href="/favicon.svg" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=clarity-v2" />
+        <link rel="alternate icon" href="/favicon.ico?v=clarity-v2" />
+        <link rel="apple-touch-icon" href="/favicon.svg?v=clarity-v2" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
