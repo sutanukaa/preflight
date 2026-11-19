@@ -84,6 +84,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const animFrameIdRef = useRef<number | null>(null);
   const agentAvatarImgRef = useRef<HTMLImageElement | null>(null);
   const recordingVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const canvasVideoTrackRef = useRef<MediaStreamTrack | null>(null);
   const hasGreetedRef = useRef(false);
   const speechSeqRef = useRef(0);
   const speechAbortControllerRef = useRef<AbortController | null>(null);
@@ -753,17 +754,6 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     ctx.fillStyle = "#1A1E24";
     ctx.fill();
 
-    // Active speaker highlight border
-    if (isSpeaking) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#10B981"; // Zoom green speaker border
-    } else {
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#2A313C";
-    }
-    ctx.stroke();
-    ctx.clip(); // Clip contents to left box
-
     // Ambient glow when speaking
     if (isSpeaking) {
       const glow = ctx.createRadialGradient(325, 330, 40, 325, 330, 280);
@@ -905,6 +895,12 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       ctx.fillText("🔊 Speaking", 526, 51);
     }
 
+    // Left Box Outer Border
+    drawRoundedRect(ctx, 20, 20, 610, 680, 12);
+    ctx.lineWidth = isSpeaking ? 3 : 1.5;
+    ctx.strokeStyle = isSpeaking ? "#10B981" : "#2A313C";
+    ctx.stroke();
+
     ctx.restore(); // End Left Box
 
     // 3. Right Box: User Live Webcam Feed (Zoom Gallery View)
@@ -913,16 +909,6 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     drawRoundedRect(ctx, 650, 20, 610, 680, 12);
     ctx.fillStyle = "#1A1E24";
     ctx.fill();
-
-    if (isUserTalking) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#10B981"; // User speaking highlight
-    } else {
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#2A313C";
-    }
-    ctx.stroke();
-    ctx.clip(); // Clip to right box
 
     const recVideo =
       recordingVideoElRef.current &&
@@ -1015,6 +1001,12 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       ctx.fillText("🎙️ Talking", 1158, 51);
     }
 
+    // Right Box Outer Border
+    drawRoundedRect(ctx, 650, 20, 610, 680, 12);
+    ctx.lineWidth = isUserTalking ? 3 : 1.5;
+    ctx.strokeStyle = isUserTalking ? "#10B981" : "#2A313C";
+    ctx.stroke();
+
     ctx.restore(); // End Right Box
   }
 
@@ -1052,7 +1044,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           }
 
           // Dedicated video element to reliably feed frames to recording canvas compositor
-          const recVideo = document.createElement("video");
+          const recVideo = recordingVideoElRef.current || document.createElement("video");
           recVideo.muted = true;
           recVideo.playsInline = true;
           recVideo.autoplay = true;
@@ -1094,18 +1086,42 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             canvas.height = 720;
             recordingCanvasRef.current = canvas;
           }
-          const ctx = canvas.getContext("2d", { alpha: false });
+          const ctx = canvas.getContext("2d", { willReadFrequently: true, alpha: false });
+
+          // 3. Capture video stream from canvas with atomic requestFrame synchronization
+          let canvasStream: MediaStream;
+          let supportsManualRequest = false;
+          try {
+            canvasStream = typeof (canvas as any).captureStream === "function" ? (canvas as any).captureStream(0) : (canvas as any).captureStream(30);
+            const track = canvasStream.getVideoTracks()[0];
+            if (track && typeof (track as any).requestFrame === "function") {
+              supportsManualRequest = true;
+              canvasVideoTrackRef.current = track;
+            } else {
+              canvasStream = (canvas as any).captureStream(30);
+            }
+          } catch {
+            canvasStream = (canvas as any).captureStream(30);
+          }
+
+          let lastFrameTime = 0;
+          const targetFrameInterval = 1000 / 30; // 33.3ms for clean 30fps
 
           function renderLoop(now: number) {
-            if (ctx) {
-              drawCompositeFrame(ctx, now);
+            if (now - lastFrameTime >= targetFrameInterval) {
+              lastFrameTime = now;
+              if (ctx) {
+                drawCompositeFrame(ctx, now);
+                if (supportsManualRequest && canvasVideoTrackRef.current) {
+                  try {
+                    (canvasVideoTrackRef.current as any).requestFrame();
+                  } catch {}
+                }
+              }
             }
             animFrameIdRef.current = requestAnimationFrame(renderLoop);
           }
           animFrameIdRef.current = requestAnimationFrame(renderLoop);
-
-          // 3. Capture 30 FPS Video Stream from Canvas
-          const canvasStream = canvas.captureStream(30);
 
           // 4. Combine Composite Video Track + Mixed Audio Track (User Mic + Agent Voice)
           const mixedStream = new MediaStream([
@@ -1116,18 +1132,26 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           // 5. Initialize MediaRecorder on Mixed Stream for Dual Video + Audio Recording
           if (typeof window !== "undefined" && typeof MediaRecorder !== "undefined") {
             try {
-              // Prioritize VP8+Opus for maximum reliability and zero alpha/header corruption
-              let mimeType = "video/webm;codecs=vp8,opus";
-              if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = "video/webm;codecs=h264,opus";
-              }
-              if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = "video/webm";
+              const mimeCandidates = [
+                "video/webm;codecs=vp9,opus",
+                "video/webm;codecs=vp9",
+                "video/webm;codecs=h264,opus",
+                "video/webm;codecs=h264",
+                "video/webm;codecs=vp8,opus",
+                "video/webm;codecs=vp8",
+                "video/webm",
+              ];
+              let mimeType = "video/webm";
+              for (const cand of mimeCandidates) {
+                if (MediaRecorder.isTypeSupported(cand)) {
+                  mimeType = cand;
+                  break;
+                }
               }
 
               const recorder = new MediaRecorder(mixedStream, {
                 mimeType,
-                videoBitsPerSecond: 2500000,
+                videoBitsPerSecond: 4000000,
               });
               recordedChunksRef.current = [];
 
@@ -2104,24 +2128,37 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
-      {/* Offscreen recording canvas attached to DOM for hardware compositor rasterization */}
-      <canvas
-        ref={(el) => {
-          if (el) recordingCanvasRef.current = el;
-        }}
-        width={1280}
-        height={720}
+      {/* Dedicated recording compositor elements kept in DOM layer for smooth hardware rasterization */}
+      <div
+        aria-hidden="true"
         style={{
           position: "fixed",
-          top: "-9999px",
-          left: "-9999px",
-          width: "1280px",
-          height: "720px",
+          bottom: 0,
+          right: 0,
+          width: "1px",
+          height: "1px",
+          opacity: 0.01,
           pointerEvents: "none",
-          opacity: 0,
-          zIndex: -100,
+          overflow: "hidden",
+          zIndex: -999,
         }}
-      />
+      >
+        <video
+          ref={recordingVideoElRef}
+          muted
+          playsInline
+          autoPlay
+          style={{ width: "1280px", height: "720px" }}
+        />
+        <canvas
+          ref={(el) => {
+            if (el) recordingCanvasRef.current = el;
+          }}
+          width={1280}
+          height={720}
+          style={{ width: "1280px", height: "720px" }}
+        />
+      </div>
     </div>
   );
 }
