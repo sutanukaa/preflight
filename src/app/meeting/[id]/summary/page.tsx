@@ -99,8 +99,7 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
   async function seekToSeconds(sec: number) {
     if (!videoRef.current) return;
     try {
-      const maxD = safeDuration > 0 ? safeDuration : 60;
-      const targetTime = Math.min(Math.max(0, isFinite(sec) ? sec : 0), maxD);
+      const targetTime = Math.max(0, isFinite(sec) ? sec : 0);
       videoRef.current.currentTime = targetTime;
       setCurrentTime(targetTime);
       await videoRef.current.play();
@@ -114,13 +113,6 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
     if (!videoRef.current) return;
     try {
       if (videoRef.current.paused) {
-        if (
-          videoRef.current.ended ||
-          (safeDuration > 0 && videoRef.current.currentTime >= safeDuration - 0.5)
-        ) {
-          videoRef.current.currentTime = 0;
-          setCurrentTime(0);
-        }
         await videoRef.current.play();
         setIsPlaying(true);
       } else {
@@ -414,14 +406,19 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
                     const d = videoRef.current.duration;
                     if (isFinite(d) && d > 0) {
                       setDuration(d);
-                    } else if (meeting?.durationSeconds && meeting.durationSeconds > 0) {
+                    } else if (meeting.durationSeconds > 0) {
                       setDuration(meeting.durationSeconds);
+                    } else {
+                      // Chromium WebM duration resolution fallback
+                      videoRef.current.currentTime = 1e101;
+                      videoRef.current.ontimeupdate = () => {
+                        if (!videoRef.current) return;
+                        videoRef.current.ontimeupdate = handleTimeUpdate;
+                        const realD = videoRef.current.currentTime;
+                        videoRef.current.currentTime = 0;
+                        setDuration(isFinite(realD) && realD > 0 ? realD : (meeting.durationSeconds || 60));
+                      };
                     }
-                  }
-                }}
-                onCanPlay={() => {
-                  if (videoRef.current && isPlaying && videoRef.current.paused) {
-                    videoRef.current.play().catch(() => {});
                   }
                 }}
                 onPlay={() => setIsPlaying(true)}

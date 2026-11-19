@@ -19,6 +19,10 @@ import {
   Monitor,
   MonitorOff,
   VolumeX,
+  Square,
+  Radio,
+  Hand,
+  RotateCcw,
 } from "lucide-react";
 import { AIAgent, Meeting, TranscriptUtterance } from "@/types";
 import { Waveform } from "@/components/Waveform";
@@ -45,6 +49,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const [isListening, setIsListening] = useState(false);
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>("auto");
+  const [voiceMode, setVoiceMode] = useState<"ptt" | "auto">("ptt");
+  const [isPTTTalking, setIsPTTTalking] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -60,12 +66,17 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const accumulatedSpeechRef = useRef<string>("");
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const voiceModeRef = useRef(voiceMode);
+  const isPTTTalkingRef = useRef(isPTTTalking);
 
   useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { agentSpeakingRef.current = agentSpeaking; }, [agentSpeaking]);
   useEffect(() => { isEndingCallRef.current = isEndingCall; }, [isEndingCall]);
   useEffect(() => { isSendingRef.current = isSending; }, [isSending]);
+  useEffect(() => { voiceModeRef.current = voiceMode; }, [voiceMode]);
+  useEffect(() => { isPTTTalkingRef.current = isPTTTalking; }, [isPTTTalking]);
 
   // Load and cache available browser SpeechSynthesis voices
   useEffect(() => {
@@ -351,15 +362,132 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     };
   }, [id]);
 
+  // Instant Interrupt: Stops agent speech, clears pending requests, and frees mic
+  function interruptAgent() {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch {}
+      abortControllerRef.current = null;
+    }
+    if (activeAudioRef.current) {
+      try {
+        activeAudioRef.current.pause();
+        activeAudioRef.current = null;
+      } catch {}
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setAgentSpeaking(false);
+    agentSpeakingRef.current = false;
+    setIsSending(false);
+    isSendingRef.current = false;
+    accumulatedSpeechRef.current = "";
+    setUserSpeechInput("");
+  }
+
+  // Push-to-Talk handlers
+  function handlePTTStart() {
+    if (isPTTTalkingRef.current) return;
+    if (agentSpeakingRef.current || isSendingRef.current) {
+      interruptAgent();
+    }
+    setIsPTTTalking(true);
+    isPTTTalkingRef.current = true;
+    accumulatedSpeechRef.current = "";
+    setUserSpeechInput("");
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
+      setTimeout(() => {
+        try { recognitionRef.current?.start(); } catch {}
+      }, 50);
+    }
+  }
+
+  function handlePTTEnd() {
+    if (!isPTTTalkingRef.current) return;
+    setIsPTTTalking(false);
+    isPTTTalkingRef.current = false;
+
+    // Capture the completed speech
+    setTimeout(() => {
+      const textToSend = accumulatedSpeechRef.current.trim() || userSpeechInput.trim();
+      if (textToSend.length > 0) {
+        accumulatedSpeechRef.current = "";
+        setUserSpeechInput("");
+        processSpokenInput(textToSend);
+      }
+    }, 200);
+  }
+
+  // Hotkeys: Spacebar for Push-to-Talk, Escape for Interrupt
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        interruptAgent();
+        return;
+      }
+      if (
+        e.code === "Space" &&
+        voiceModeRef.current === "ptt" &&
+        !isPTTTalkingRef.current &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA"
+      ) {
+        e.preventDefault();
+        handlePTTStart();
+      }
+    }
+
+    function handleKeyUp(e: KeyboardEvent) {
+      if (
+        e.code === "Space" &&
+        voiceModeRef.current === "ptt" &&
+        isPTTTalkingRef.current &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA"
+      ) {
+        e.preventDefault();
+        handlePTTEnd();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
   // Request user camera/mic for local preview and recording
   useEffect(() => {
     async function startCamera() {
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true,
-          });
+          let stream: MediaStream;
+          try {
+            // Request crisp 1080p/720p HD webcam with echo cancellation & noise suppression
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                width: { ideal: 1920, min: 1280 },
+                height: { ideal: 1080, min: 720 },
+                frameRate: { ideal: 30, min: 24 },
+                facingMode: "user",
+              },
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+            });
+          } catch {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: true,
+            });
+          }
           mediaStreamRef.current = stream;
           if (localVideoRef.current && !isScreenSharing) {
             localVideoRef.current.srcObject = stream;
@@ -445,6 +573,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           return;
         }
 
+        // In PTT mode, only capture speech when user is actively holding to speak
+        if (voiceModeRef.current === "ptt" && !isPTTTalkingRef.current) {
+          return;
+        }
+
         let interim = "";
         let final = "";
 
@@ -461,24 +594,29 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           setUserSpeechInput(recognizedText);
           accumulatedSpeechRef.current = recognizedText;
 
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-          }
-
-          // Voice Activity Detection: auto-send after 650ms conversational pause for fast response
-          silenceTimerRef.current = setTimeout(() => {
-            const textToSend = accumulatedSpeechRef.current.trim();
-            if (
-              textToSend.length > 1 &&
-              !isSendingRef.current &&
-              !agentSpeakingRef.current &&
-              micActiveRef.current
-            ) {
-              accumulatedSpeechRef.current = "";
-              setUserSpeechInput("");
-              processSpokenInput(textToSend);
+          // Only in Auto mode do we auto-dispatch with 1.8s silence window
+          if (voiceModeRef.current === "auto") {
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
             }
-          }, 650);
+
+            // Natural 1.8s conversational pause so user can formulate complete thoughts without getting cut off
+            silenceTimerRef.current = setTimeout(() => {
+              const textToSend = accumulatedSpeechRef.current.trim();
+              const words = textToSend.split(/\s+/).filter(Boolean);
+              if (
+                words.length >= 2 &&
+                textToSend.length >= 5 &&
+                !isSendingRef.current &&
+                !agentSpeakingRef.current &&
+                micActiveRef.current
+              ) {
+                accumulatedSpeechRef.current = "";
+                setUserSpeechInput("");
+                processSpokenInput(textToSend);
+              }
+            }, 1800);
+          }
         }
       };
 
@@ -615,9 +753,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
   // Process User Speech & Generate In-Character Agent Response
   async function processSpokenInput(spokenText: string) {
-    if (!spokenText.trim()) return;
+    if (!spokenText.trim() || isSendingRef.current) return;
 
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     setIsSending(true);
+    isSendingRef.current = true;
     const agentName = meeting?.agent?.name || "AI Specialist";
 
     const userUtterance: TranscriptUtterance = {
@@ -631,20 +771,29 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
     const updatedHistory = [...liveUtterances, userUtterance];
     setLiveUtterances(updatedHistory);
-    setAgentSpeaking(true);
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const timeoutId = setTimeout(() => {
+      try { abortController.abort(); } catch {}
+    }, 6000);
 
     try {
       const res = await fetch(`/api/meetings/${id}/agent-response`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortController.signal,
         body: JSON.stringify({
           userText: spokenText.trim(),
           history: updatedHistory,
         }),
       });
 
-      const data = await res.json();
-      const reply = data.reply || "I am analyzing that. Let's dig deeper.";
+      clearTimeout(timeoutId);
+      const data = await res.json().catch(() => ({}));
+      const reply =
+        data.reply ||
+        `I hear your question clearly! Let's explore that together. What would you like to review first?`;
 
       const agentUtterance: TranscriptUtterance = {
         id: `u-agent-${Date.now()}`,
@@ -657,11 +806,15 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
       setLiveUtterances((prev) => [...prev, agentUtterance]);
       speakWithSyntheticVoice(reply);
-    } catch (err) {
-      console.error("Agent reply error:", err);
-      setAgentSpeaking(false);
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.warn("Agent reply notice:", err?.message || err);
+      const fallbackReply = `I'm listening closely, please go ahead!`;
+      speakWithSyntheticVoice(fallbackReply);
     } finally {
       setIsSending(false);
+      isSendingRef.current = false;
+      abortControllerRef.current = null;
     }
   }
 
@@ -913,21 +1066,94 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       </div>
 
       {/* Dedicated Speech & Message Input Bar */}
-      <div className="bg-surface border border-line rounded-lg p-3 shadow-card">
+      <div className="bg-surface border border-line rounded-lg p-3.5 shadow-card space-y-3">
+        {/* Top Control Bar: Mode Toggle + Push-to-Talk Button + Interrupt Button */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            {/* Mode Switcher */}
+            <div className="bg-canvas border border-line rounded-md p-0.5 flex items-center text-xs font-mono">
+              <button
+                type="button"
+                onClick={() => setVoiceMode("ptt")}
+                className={`px-2.5 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  voiceMode === "ptt"
+                    ? "bg-brand text-white font-semibold shadow-subtle"
+                    : "text-muted hover:text-ink"
+                }`}
+                title="Hold Spacebar or the button to speak without interruptions"
+              >
+                <Hand className="w-3.5 h-3.5" />
+                <span>Push-to-Talk</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setVoiceMode("auto")}
+                className={`px-2.5 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  voiceMode === "auto"
+                    ? "bg-brand text-white font-semibold shadow-subtle"
+                    : "text-muted hover:text-ink"
+                }`}
+                title="Automatically responds after you finish speaking"
+              >
+                <Radio className="w-3.5 h-3.5" />
+                <span>Hands-Free Auto</span>
+              </button>
+            </div>
+
+            {/* In PTT mode: Prominent Hold-to-Talk Button */}
+            {voiceMode === "ptt" && (
+              <button
+                type="button"
+                onMouseDown={handlePTTStart}
+                onMouseUp={handlePTTEnd}
+                onTouchStart={handlePTTStart}
+                onTouchEnd={handlePTTEnd}
+                className={`px-4 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 select-none transition-all shadow-subtle cursor-pointer ${
+                  isPTTTalking
+                    ? "bg-danger text-white animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)] scale-105"
+                    : "bg-brand text-white hover:bg-brand-deep active:scale-95"
+                }`}
+                title="Click & hold (or hold Spacebar) while speaking"
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>{isPTTTalking ? "🎙️ Listening... (Release when done)" : "Hold to Speak (or Spacebar)"}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Emergency Interrupt Button (Always visible when Agent is talking or thinking) */}
+          {(agentSpeaking || isSending) && (
+            <button
+              type="button"
+              onClick={interruptAgent}
+              className="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-danger hover:bg-red-700 text-white flex items-center gap-1.5 transition-all shadow-subtle animate-pulse shrink-0 cursor-pointer"
+              title="Stop agent immediately (or press Escape)"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span>Interrupt Agent (Esc)</span>
+            </button>
+          )}
+        </div>
+
+        {/* Input Form with Live Status Pill */}
         <form onSubmit={handleSendMessage} className="flex items-center gap-2.5">
-          {/* Always-Active Hands-Free Mic Status Pill */}
+          {/* Status Pill with clickable reset rescue */}
           <div
-            className={`px-3 py-2 rounded-md text-xs font-mono flex items-center gap-2 shrink-0 border transition-all ${
+            onClick={interruptAgent}
+            className={`px-3 py-2 rounded-md text-xs font-mono flex items-center gap-2 shrink-0 border transition-all cursor-pointer select-none ${
               !micActive
                 ? "bg-danger-bg text-danger border-danger/30"
                 : isSending
                 ? "bg-canvas border-line text-muted animate-pulse"
                 : agentSpeaking
                 ? "bg-brand-light border-brand/20 text-brand"
+                : isPTTTalking
+                ? "bg-danger text-white border-danger"
                 : isListening
                 ? "bg-success-bg text-success border-success/30"
                 : "bg-canvas border-line text-muted"
             }`}
+            title={isSending || agentSpeaking ? "Click to cancel and reset" : undefined}
           >
             <span
               className={`w-2 h-2 rounded-full shrink-0 ${
@@ -937,6 +1163,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
                   ? "bg-muted animate-pulse"
                   : agentSpeaking
                   ? "bg-brand animate-ping"
+                  : isPTTTalking
+                  ? "bg-white animate-ping"
                   : isListening
                   ? "bg-success animate-ping"
                   : "bg-muted"
@@ -946,11 +1174,15 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               {!micActive
                 ? "Mic Muted"
                 : isSending
-                ? "Agent Thinking..."
+                ? "Agent Thinking... (click to cancel)"
                 : agentSpeaking
                 ? `${agent?.name || "Agent"} Speaking...`
+                : isPTTTalking
+                ? "Speaking (Recording)..."
+                : voiceMode === "ptt"
+                ? "Push-to-Talk Ready"
                 : isListening
-                ? "Live Mic (Speak naturally...)"
+                ? "Hands-Free Mic Live"
                 : "Live Mic Ready"}
             </span>
           </div>
@@ -958,10 +1190,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <input
             type="text"
             placeholder={
-              !micActive
-                ? "Microphone is muted. Click 'Unmute' below or type here..."
+              voiceMode === "ptt"
+                ? "Hold Spacebar / button to speak, or type your message here..."
                 : isListening
-                ? "Live microphone listening continuously... Speak naturally or type here..."
+                ? "Speak naturally with full sentences, or type here..."
                 : "Type your message or speak naturally..."
             }
             value={userSpeechInput}
@@ -972,7 +1204,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <button
             type="submit"
             disabled={!userSpeechInput.trim() || isSending}
-            className="px-4 py-2 bg-brand text-white rounded-md text-xs font-semibold hover:bg-brand-deep disabled:opacity-40 flex items-center gap-1.5 shrink-0 transition-colors shadow-subtle"
+            className="px-4 py-2 bg-brand text-white rounded-md text-xs font-semibold hover:bg-brand-deep disabled:opacity-40 flex items-center gap-1.5 shrink-0 transition-colors shadow-subtle cursor-pointer"
           >
             {isSending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

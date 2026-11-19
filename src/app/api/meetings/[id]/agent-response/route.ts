@@ -51,11 +51,12 @@ export async function POST(
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              signal: AbortSignal.timeout(4500),
               body: JSON.stringify({
                 system_instruction: {
                   parts: [
                     {
-                      text: `${systemPrompt}\nYou are ${agentName}, ${agentRole}. You are on a live, fast voice call with the user.\nVoice Call Rules:\n1. Keep replies strictly to 1 or 2 punchy, spoken sentences (maximum 20 words).\n2. Speak naturally, warmly, and immediately.\n3. Do NOT use bullet points, markdown formatting, or preamble. React directly.`,
+                      text: `${systemPrompt}\nYou are ${agentName}, ${agentRole}. You are on a live voice call with the user.\nVoice Call Rules:\n1. Keep replies strictly to 1 or 2 spoken sentences (maximum 20 words).\n2. Speak naturally, warmly, and directly.\n3. Do NOT use bullet points, formatting, or preamble. Answer the user's exact point.`,
                     },
                   ],
                 },
@@ -75,11 +76,11 @@ export async function POST(
               return NextResponse.json({ reply: gText.trim() });
             }
           } else {
-            const errData = await geminiRes.json();
+            const errData = await geminiRes.json().catch(() => ({}));
             console.error(`Gemini model ${modelName} returned status ${geminiRes.status}:`, errData);
           }
-        } catch (err) {
-          console.warn(`Gemini ${modelName} error:`, err);
+        } catch (err: any) {
+          console.warn(`Gemini ${modelName} notice (${err.name || "timeout"}):`, err.message || err);
         }
       }
     }
