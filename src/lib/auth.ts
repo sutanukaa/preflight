@@ -7,8 +7,11 @@ const AUTH_CACHE_FILE = path.join(process.cwd(), ".auth-cache.json");
 
 function loadAuthCache() {
   try {
-    if (fs.existsSync(AUTH_CACHE_FILE)) {
-      const data = JSON.parse(fs.readFileSync(AUTH_CACHE_FILE, "utf-8"));
+    const filePath = process.env.VERCEL
+      ? path.join("/tmp", ".auth-cache.json")
+      : AUTH_CACHE_FILE;
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
       return {
         user: Array.isArray(data.user) ? data.user : [],
         session: Array.isArray(data.session) ? data.session : [],
@@ -31,16 +34,27 @@ export const memoryDb = loadAuthCache();
 
 export function saveAuthCache() {
   try {
-    fs.writeFileSync(AUTH_CACHE_FILE, JSON.stringify(memoryDb, null, 2), "utf-8");
+    const filePath = process.env.VERCEL
+      ? path.join("/tmp", ".auth-cache.json")
+      : AUTH_CACHE_FILE;
+    fs.writeFileSync(filePath, JSON.stringify(memoryDb, null, 2), "utf-8");
   } catch (e) {
     console.warn("Failed saving auth cache:", e);
   }
 }
 
+const resolvedBaseURL =
+  process.env.BETTER_AUTH_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000");
+
 export const auth = betterAuth({
   database: memoryAdapter(memoryDb),
   secret: process.env.BETTER_AUTH_SECRET || "dev_secret_key_needs_32_characters_for_better_auth_session",
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  baseURL: resolvedBaseURL,
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID || "",
