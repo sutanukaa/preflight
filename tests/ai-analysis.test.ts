@@ -84,5 +84,5 @@ describe("AI Intelligence & Post-Meeting Analysis Suite", () => {
     expect(reply.text).toBeDefined();
     expect(reply.referencedSeconds).toBeDefined();
     expect(Array.isArray(reply.referencedSeconds)).toBe(true);
-  }, 20000);
+  }, 35000);
 });

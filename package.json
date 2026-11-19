@@ -19,6 +19,7 @@
     "better-auth": "^1.7.26",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.4",
+    "edge-tts": "^1.0.1",
     "inngest": "^4.26.2",
     "lucide-react": "^0.468.0",
     "next": "^15.1.0",

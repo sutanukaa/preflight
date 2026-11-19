@@ -43,6 +43,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const [isEndingCall, setIsEndingCall] = useState(false);
   const [streamConnected, setStreamConnected] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>("auto");
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -57,12 +59,33 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const isSendingRef = useRef(isSending);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const accumulatedSpeechRef = useRef<string>("");
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { agentSpeakingRef.current = agentSpeaking; }, [agentSpeaking]);
   useEffect(() => { isEndingCallRef.current = isEndingCall; }, [isEndingCall]);
   useEffect(() => { isSendingRef.current = isSending; }, [isSending]);
+
+  // Load and cache available browser SpeechSynthesis voices
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    function populateVoices() {
+      const all = window.speechSynthesis.getVoices();
+      const en = all.filter((v) => v.lang.startsWith("en"));
+      setBrowserVoices(en.length > 0 ? en : all);
+    }
+
+    populateVoices();
+    window.speechSynthesis.onvoiceschanged = populateVoices;
+
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
 
   // Sync real user name from Google OAuth session or localStorage
   useEffect(() => {
@@ -92,9 +115,138 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
   }, [authSession]);
 
-  // Play spoken response via Web Speech Synthesis
+  // Resolve the best natural human voice available
+  function resolveVoice(): SpeechSynthesisVoice | null {
+    if (browserVoices.length === 0) return null;
+
+    if (selectedVoiceURI !== "auto" && selectedVoiceURI !== "cloud-tts") {
+      const custom = browserVoices.find(
+        (v) => v.voiceURI === selectedVoiceURI || v.name === selectedVoiceURI
+      );
+      if (custom) return custom;
+    }
+
+    const agentName = (meeting?.agent?.name || "").toLowerCase();
+    const isFemale =
+      agentName.includes("susan") ||
+      agentName.includes("sarah") ||
+      agentName.includes("maya") ||
+      agentName.includes("elena") ||
+      agentName.includes("clarke") ||
+      meeting?.agent?.voice === "shimmer";
+
+    if (isFemale) {
+      const femaleNatural = browserVoices.find(
+        (v) =>
+          (v.name.includes("Jenny") && v.name.includes("Natural")) ||
+          (v.name.includes("Aria") && v.name.includes("Natural")) ||
+          v.name === "Google US English" ||
+          (v.name.includes("Google") && v.name.toLowerCase().includes("female")) ||
+          (v.name.includes("Natural") && !v.name.includes("Guy") && !v.name.includes("Christopher")) ||
+          v.name.includes("Zira")
+      );
+      if (femaleNatural) return femaleNatural;
+    } else {
+      const maleNatural = browserVoices.find(
+        (v) =>
+          (v.name.includes("Guy") && v.name.includes("Natural")) ||
+          (v.name.includes("Christopher") && v.name.includes("Natural")) ||
+          (v.name.includes("Google") && v.name.toLowerCase().includes("male")) ||
+          (v.name.includes("Natural") && !v.name.includes("Jenny") && !v.name.includes("Aria")) ||
+          v.name.includes("David")
+      );
+      if (maleNatural) return maleNatural;
+    }
+
+    // Fallback: any voice containing Natural, Neural, or Google
+    const anyNatural = browserVoices.find(
+      (v) =>
+        v.name.includes("Natural") ||
+        v.name.includes("Neural") ||
+        v.name.includes("Google")
+    );
+    return anyNatural || browserVoices[0] || null;
+  }
+
+  // Play spoken response via Neural Cloud API or Browser Natural Speech
   function speakWithSyntheticVoice(text: string) {
-    if (!voiceAudioEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) {
+    if (!voiceAudioEnabled || typeof window === "undefined") {
+      setAgentSpeaking(false);
+      agentSpeakingRef.current = false;
+      return;
+    }
+
+    // Cancel ongoing audio element or browser utterance
+    if (activeAudioRef.current) {
+      try {
+        activeAudioRef.current.pause();
+        activeAudioRef.current = null;
+      } catch {}
+    }
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    const voice = resolveVoice();
+    const isNatural =
+      voice &&
+      (voice.name.includes("Natural") ||
+        voice.name.includes("Neural") ||
+        voice.name.includes("Google"));
+
+    // If Cloud TTS is selected OR if browser only has robotic legacy desktop voices (no Natural/Google):
+    if (
+      selectedVoiceURI === "cloud-tts" ||
+      (!isNatural && selectedVoiceURI === "auto")
+    ) {
+      try {
+        const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}`);
+        activeAudioRef.current = audio;
+
+        audio.onplay = () => {
+          setAgentSpeaking(true);
+          agentSpeakingRef.current = true;
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        };
+
+        audio.onended = () => {
+          setAgentSpeaking(false);
+          agentSpeakingRef.current = false;
+          accumulatedSpeechRef.current = "";
+          setUserSpeechInput("");
+          if (
+            micActiveRef.current &&
+            !isEndingCallRef.current &&
+            !isListeningRef.current
+          ) {
+            try {
+              recognitionRef.current?.start();
+            } catch {}
+          }
+        };
+
+        audio.onerror = () => {
+          speakWithBrowserVoice(text, voice);
+        };
+
+        audio.play().catch(() => {
+          speakWithBrowserVoice(text, voice);
+        });
+        return;
+      } catch {
+        speakWithBrowserVoice(text, voice);
+        return;
+      }
+    }
+
+    speakWithBrowserVoice(text, voice);
+  }
+
+  function speakWithBrowserVoice(
+    text: string,
+    voice: SpeechSynthesisVoice | null
+  ) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       setAgentSpeaking(false);
       agentSpeakingRef.current = false;
       return;
@@ -103,7 +255,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.05;
+      if (voice) {
+        utterance.voice = voice;
+      }
+      utterance.rate = 1.0;
       utterance.pitch = 1.0;
 
       utterance.onstart = () => {
@@ -117,8 +272,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         agentSpeakingRef.current = false;
         accumulatedSpeechRef.current = "";
         setUserSpeechInput("");
-        // Resume listening automatically as soon as agent finishes speaking!
-        if (micActiveRef.current && !isEndingCallRef.current && !isListeningRef.current) {
+        if (
+          micActiveRef.current &&
+          !isEndingCallRef.current &&
+          !isListeningRef.current
+        ) {
           try {
             recognitionRef.current?.start();
           } catch {}
@@ -136,6 +294,13 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       setAgentSpeaking(false);
       agentSpeakingRef.current = false;
     }
+  }
+
+  function previewVoice() {
+    const agentName = meeting?.agent?.name || "AI Specialist";
+    speakWithSyntheticVoice(
+      `Hello! I am ${agentName}. This is how my voice sounds in our live session.`
+    );
   }
 
   // Load meeting & Stream credentials
@@ -175,6 +340,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     loadMeeting();
 
     return () => {
+      if (activeAudioRef.current) {
+        try {
+          activeAudioRef.current.pause();
+        } catch {}
+      }
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
@@ -295,7 +465,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             clearTimeout(silenceTimerRef.current);
           }
 
-          // Voice Activity Detection: auto-send after 1.2s conversational pause
+          // Voice Activity Detection: auto-send after 650ms conversational pause for fast response
           silenceTimerRef.current = setTimeout(() => {
             const textToSend = accumulatedSpeechRef.current.trim();
             if (
@@ -308,7 +478,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               setUserSpeechInput("");
               processSpokenInput(textToSend);
             }
-          }, 1200);
+          }, 650);
         }
       };
 
@@ -511,6 +681,12 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     setIsEndingCall(true);
     isEndingCallRef.current = true;
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (activeAudioRef.current) {
+      try {
+        activeAudioRef.current.pause();
+        activeAudioRef.current = null;
+      } catch {}
+    }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -595,7 +771,35 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Natural Voice Selector */}
+          <div className="flex items-center gap-1.5 bg-canvas border border-line rounded px-2 py-1 text-[11px] font-mono">
+            <Sparkles className="w-3.5 h-3.5 text-brand" />
+            <select
+              value={selectedVoiceURI}
+              onChange={(e) => setSelectedVoiceURI(e.target.value)}
+              className="bg-transparent text-ink text-xs font-semibold focus:outline-none cursor-pointer max-w-[150px] truncate"
+              title="Select Voice Synthesis Engine"
+            >
+              <option value="auto">✨ Auto Natural Neural</option>
+              <option value="cloud-tts">🌐 Google Neural (Free API)</option>
+              {browserVoices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name.includes("Natural") || v.name.includes("Google") ? "🌟 " : "🗣️ "}
+                  {v.name.replace("Microsoft ", "").replace(" - English (United States)", "")}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={previewVoice}
+              type="button"
+              className="ml-1 text-[10px] text-brand hover:underline font-bold px-1.5 py-0.5 rounded bg-brand-light hover:bg-brand/20 transition-colors"
+              title="Test agent speaking voice"
+            >
+              Test
+            </button>
+          </div>
+
           <button
             onClick={() => setVoiceAudioEnabled(!voiceAudioEnabled)}
             className="flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded border border-line hover:bg-canvas text-muted"
@@ -619,7 +823,13 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             <span className="text-[10px] font-mono bg-black/60 backdrop-blur-sm text-white px-2 py-1 rounded flex items-center gap-1.5">
               <Sparkles className="w-3 h-3 text-brand" />
               <span>{agent?.name || "David Kross"}</span>
-              <span className="text-muted">• {agent?.voice || "fable"} voice</span>
+              <span className="text-white/60">
+                •{" "}
+                {selectedVoiceURI === "cloud-tts"
+                  ? "Google Neural HD"
+                  : resolveVoice()?.name.replace("Microsoft ", "").replace(" - English (United States)", "") ||
+                    "Natural Neural"}
+              </span>
             </span>
             {agentSpeaking && (
               <span className="text-[10px] font-mono bg-brand text-white px-2 py-0.5 rounded animate-pulse">
@@ -655,8 +865,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           </div>
 
           <div className="text-[11px] font-mono text-white/50 z-10 flex items-center justify-between">
-            <span>Google Gemini 3.5 Flash Powered</span>
-            <span>PCM 24kHz • Realtime</span>
+            <span>Google Gemini 3.1 Flash Powered</span>
+            <span>Ultra Low-Latency • Neural Voice</span>
           </div>
 
           {/* Background Ambient Glow */}

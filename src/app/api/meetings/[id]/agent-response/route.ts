@@ -31,12 +31,12 @@ export async function POST(
       process.env.GEMINI_API_KEY;
 
     if (geminiKey) {
-      const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-flash-latest"];
+      const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-latest"];
 
       for (const modelName of modelsToTry) {
         try {
           const contents = [
-            ...history.slice(-6).map((h: any) => ({
+            ...history.slice(-4).map((h: any) => ({
               role: h.speaker === "user" ? "user" : "model",
               parts: [{ text: h.text }],
             })),
@@ -55,14 +55,14 @@ export async function POST(
                 system_instruction: {
                   parts: [
                     {
-                      text: `${systemPrompt}\nYou are ${agentName}, ${agentRole}. You are currently in an interactive live voice call with the user.\nRules:\n1. Keep responses concise, spoken, and conversational (1 to 3 sentences maximum).\n2. Speak naturally and directly to the user.\n3. Do NOT use bullet points or formatting. Answer or react directly.`,
+                      text: `${systemPrompt}\nYou are ${agentName}, ${agentRole}. You are on a live, fast voice call with the user.\nVoice Call Rules:\n1. Keep replies strictly to 1 or 2 punchy, spoken sentences (maximum 20 words).\n2. Speak naturally, warmly, and immediately.\n3. Do NOT use bullet points, markdown formatting, or preamble. React directly.`,
                     },
                   ],
                 },
                 contents,
                 generationConfig: {
-                  temperature: 0.7,
-                  maxOutputTokens: 150,
+                  temperature: 0.6,
+                  maxOutputTokens: 65,
                 },
               }),
             }

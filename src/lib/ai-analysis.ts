@@ -79,7 +79,7 @@ Important:
 - Make the overview, takeaways, and topics accurately reflect what ${userName} and ${agentName} actually said.
 - Provide 2 to 4 action items with realistic priorities ('high', 'medium', 'low') and status 'pending'.`;
 
-    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-latest"];
     for (const model of modelsToTry) {
       try {
         const res = await fetch(
@@ -230,7 +230,7 @@ Instructions:
 2. Whenever referencing a specific moment, quote or cite the exact timestamp in brackets like [01:23].
 3. Format your response cleanly with markdown if lists or bold emphasis are helpful.`;
 
-    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-latest"];
     for (const model of modelsToTry) {
       try {
         const res = await fetch(
