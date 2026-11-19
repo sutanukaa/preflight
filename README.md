@@ -1,5 +1,7 @@
 # Clarity AI — AI Video Interaction & Post-Meeting Intelligence SaaS
 
+> 📖 **Full System Architecture & Technical Documentation**: See [PROJECT_DOCUMENTATION.md](file:///d:/preflight/PROJECT_DOCUMENTATION.md) for deep-dive architecture diagrams, sequence flows, database schemas, anti-hallucination pipelines, and API references.
+
 Clarity AI is a full-stack Node.js (Next.js 15 App Router + React 19) SaaS platform providing interactive live video calls with personalized AI agents, followed by automated Inngest background processing and a comprehensive Post-Meeting Intelligence Suite.
 
 Built with strict adherence to the clean, editorial design standards specified in `BRAND_IDENTITY.md`.
