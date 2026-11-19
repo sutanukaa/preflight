@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { inMemoryStore, dbPool } from "@/lib/db";
 import { inngest } from "@/lib/inngest/client";
 import { TranscriptUtterance, MeetingSummary } from "@/types";
-import { generateMeetingSummaryWithGemini } from "@/lib/ai-analysis";
+import { generateMeetingSummaryWithGemini, buildDeterministicSummary } from "@/lib/ai-analysis";
 
 export const dynamic = "force-dynamic";
 
@@ -110,91 +110,17 @@ export async function POST(
         console.warn("Inngest dispatch note:", (e as Error).message);
       }
 
-      // 2. Synthesize topics, transcript & summary
+      // 2. Transcripts derived directly from the live meeting session
       const agentName = meeting.agent?.name || "AI Specialist";
-      const finalTranscripts: TranscriptUtterance[] = utterances.length > 0
-        ? utterances
-        : [
-            {
-              id: `tr-${id}-1`,
-              speaker: "agent",
-              speakerName: agentName,
-              timestamp: "00:04",
-              seconds: 4,
-              text: `Hello! I am ${agentName}. It's great to connect with you. What challenge are we tackling today?`,
-            },
-            {
-              id: `tr-${id}-2`,
-              speaker: "user",
-              speakerName: `${userName} (You)`,
-              timestamp: "00:22",
-              seconds: 22,
-              text: "We are designing our real-time video intelligence workflow, streaming live audio into OpenAI Realtime and processing calls with Inngest.",
-            },
-            {
-              id: `tr-${id}-3`,
-              speaker: "agent",
-              speakerName: agentName,
-              timestamp: "00:54",
-              seconds: 54,
-              text: "That architecture is robust. By using Stream Video's SFU for WebRTC, we eliminate media server bottlenecks. When the call ends, Inngest triggers the background summarization pipeline.",
-            },
-            {
-              id: `tr-${id}-4`,
-              speaker: "user",
-              speakerName: `${userName} (You)`,
-              timestamp: "01:45",
-              seconds: 105,
-              text: "And how do we ensure the user can jump straight to relevant points when reviewing the meeting transcript?",
-            },
-            {
-              id: `tr-${id}-5`,
-              speaker: "agent",
-              speakerName: agentName,
-              timestamp: "02:18",
-              seconds: 138,
-              text: "Each topic block and transcript line has an exact timestamp in seconds. Clicking any utterance seeks the video player directly to that frame, keeping video and transcript perfectly synchronized.",
-            },
-          ];
+      const finalTranscripts: TranscriptUtterance[] = utterances;
 
-      // 3. Populate immediate post-meeting record so client navigation is instantaneous (<100ms)
-      const existingSummary = inMemoryStore.getMeeting(id)?.summary;
-      const initialSummary: MeetingSummary = existingSummary || {
-        meetingId: id,
-        overview: `Interactive specialist session with ${agentName} discussing actionable solutions and technical strategy.`,
-        topics: [
-          {
-            id: `top-${id}-1`,
-            title: "Discussion & Strategic Guidance",
-            timestamp: "00:00",
-            seconds: 0,
-            summary: "Collaborative review of project objectives, action items, and technical guidance.",
-            bulletPoints: [
-              "Comprehensive alignment on key project milestones.",
-              "Review of specialist recommendations and actionable outcomes.",
-            ],
-          },
-        ],
-        actionItems: [
-          {
-            id: `act-${id}-1`,
-            task: "Review action items from session",
-            owner: "Team",
-            priority: "medium",
-            status: "pending",
-          },
-        ],
-        keyTakeaways: [
-          "Specialist guidance successfully delivered.",
-          "Post-meeting deliverables indexed and ready for review.",
-        ],
-        sentiment: {
-          positive: 85,
-          neutral: 15,
-          negative: 0,
-          verdict: "Constructive & Action-Oriented",
-        },
-      };
+      // 3. Populate immediate post-meeting record derived from the actual spoken dialogue (zero slop)
+      const initialSummary: MeetingSummary = buildDeterministicSummary(
+        id,
+        finalTranscripts,
+        userName,
+        agentName
+      );
 
       const updatedMeeting = inMemoryStore.updateMeeting(id, {
         status: "completed",

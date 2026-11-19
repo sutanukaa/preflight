@@ -447,19 +447,7 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
                     } else if (meeting?.durationSeconds && meeting.durationSeconds > 0) {
                       setDuration(meeting.durationSeconds);
                     } else {
-                      // Chromium WebM duration resolution fallback
-                      videoRef.current.currentTime = Number.MAX_SAFE_INTEGER;
-                      videoRef.current.ontimeupdate = () => {
-                        if (!videoRef.current) return;
-                        videoRef.current.ontimeupdate = handleTimeUpdate;
-                        const realD = videoRef.current.currentTime;
-                        videoRef.current.currentTime = 0;
-                        if (isFinite(realD) && realD > 0) {
-                          setDuration(realD);
-                        } else {
-                          setDuration(meeting?.durationSeconds || 60);
-                        }
-                      };
+                      setDuration(60);
                     }
                   }
                 }}
@@ -541,85 +529,6 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
               <div className="bg-ink h-full" style={{ width: `${userRatio}%` }} title="User talk ratio" />
             </div>
           </div>
-
-          {/* Interactive Action Items Checklist */}
-          <div className="bg-surface border border-line rounded-lg p-4 shadow-card space-y-3">
-            <div className="flex items-center justify-between border-b border-line pb-2.5">
-              <div className="flex items-center gap-2">
-                <ListTodo className="w-4 h-4 text-brand" />
-                <span className="text-xs font-bold text-ink">Action Deliverables</span>
-              </div>
-              <span className="text-[10px] font-mono text-muted">
-                {summary?.actionItems.filter((i) => i.status === "completed").length} of {summary?.actionItems.length || 0} completed
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {summary?.actionItems.map((item) => {
-                const isCompleted = item.status === "completed";
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => handleToggleActionItem(item.id)}
-                    className="flex items-start gap-2.5 p-2 rounded bg-canvas border border-line text-xs cursor-pointer hover:border-brand transition-colors group"
-                  >
-                    <button className="mt-0.5 text-muted group-hover:text-brand">
-                      {isCompleted ? (
-                        <CheckCircle2 className="w-4 h-4 text-success" />
-                      ) : (
-                        <Circle className="w-4 h-4 text-muted" />
-                      )}
-                    </button>
-                    <div className="flex-1">
-                      <p
-                        className={`font-medium leading-tight ${
-                          isCompleted ? "line-through text-muted" : "text-ink"
-                        }`}
-                      >
-                        {item.task}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1 text-[10px] font-mono text-muted">
-                        <span>Owner: {item.owner}</span>
-                        <span>•</span>
-                        <span
-                          className={`uppercase px-1 rounded text-[9px] font-bold ${
-                            item.priority === "high"
-                              ? "bg-danger-bg text-danger"
-                              : "bg-warning-bg text-warning"
-                          }`}
-                        >
-                          {item.priority}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Sentiment Gauge */}
-          {summary?.sentiment && (
-            <div className="bg-surface border border-line rounded-lg p-4 shadow-card flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
-                  AI Sentiment Analysis
-                </span>
-                <span className="text-xs font-bold text-ink mt-0.5 block">
-                  {summary.sentiment.verdict}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 font-mono text-xs">
-                <span className="text-success font-semibold">
-                  {summary.sentiment.positive}% Positive
-                </span>
-                <span className="text-muted">/</span>
-                <span className="text-muted font-medium">
-                  {summary.sentiment.neutral}% Neutral
-                </span>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Right Column (7 Cols): Tabs (AI Summary | Searchable Transcript | Meeting Copilot Chat) */}

@@ -42,6 +42,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
   const [liveUtterances, setLiveUtterances] = useState<TranscriptUtterance[]>([]);
+  const liveUtterancesRef = useRef<TranscriptUtterance[]>([]);
   const [userSpeechInput, setUserSpeechInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isEndingCall, setIsEndingCall] = useState(false);
@@ -517,6 +518,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               seconds: 2,
               text: initGreeting,
             };
+            liveUtterancesRef.current = [initUtterance];
             setLiveUtterances([initUtterance]);
             speakWithSyntheticVoice(initGreeting);
           }
@@ -619,7 +621,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     setIsPTTTalking(false);
     isPTTTalkingRef.current = false;
 
-    // Capture the completed speech
+    // Capture the completed speech - buffer 400ms so final speech tokens are never clipped
     setTimeout(() => {
       const textToSend = accumulatedSpeechRef.current.trim() || userSpeechInput.trim();
       if (textToSend.length > 0) {
@@ -627,7 +629,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         setUserSpeechInput("");
         processSpokenInput(textToSend);
       }
-    }, 200);
+    }, 400);
   }
 
   // Hotkeys: Spacebar for Push-to-Talk, Escape for Interrupt
@@ -1424,8 +1426,9 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       text: spokenText.trim(),
     };
 
-    const updatedHistory = [...liveUtterances, userUtterance];
-    setLiveUtterances(updatedHistory);
+    liveUtterancesRef.current = [...liveUtterancesRef.current, userUtterance];
+    setLiveUtterances([...liveUtterancesRef.current]);
+    const updatedHistory = [...liveUtterancesRef.current];
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -1462,7 +1465,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       };
 
       if (!isEndingCallRef.current) {
-        setLiveUtterances((prev) => [...prev, agentUtterance]);
+        liveUtterancesRef.current = [...liveUtterancesRef.current, agentUtterance];
+        setLiveUtterances([...liveUtterancesRef.current]);
         speakWithSyntheticVoice(reply);
       }
     } catch (err: any) {
@@ -1479,17 +1483,17 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         fallbackReply = `The Pythagorean theorem tells us that a squared plus b squared equals c squared for right-angled triangles. For example, in a triangle with sides three and four, three squared is nine and four squared is sixteen, which adds to twenty-five, making the hypotenuse five!`;
       }
 
-      setLiveUtterances((prev) => [
-        ...prev,
-        {
-          id: `u-agent-${Date.now()}`,
-          speaker: "agent",
-          speakerName: agentName,
-          timestamp: timeFormatted,
-          seconds: callDuration + 2,
-          text: fallbackReply,
-        },
-      ]);
+      const fallbackAgentUtterance: TranscriptUtterance = {
+        id: `u-agent-${Date.now()}`,
+        speaker: "agent",
+        speakerName: agentName,
+        timestamp: timeFormatted,
+        seconds: callDuration + 2,
+        text: fallbackReply,
+      };
+
+      liveUtterancesRef.current = [...liveUtterancesRef.current, fallbackAgentUtterance];
+      setLiveUtterances([...liveUtterancesRef.current]);
       speakWithSyntheticVoice(fallbackReply);
     } finally {
       setIsSending(false);
@@ -1612,7 +1616,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         body: JSON.stringify({
           action: "end_call",
           durationSeconds: Math.max(callDuration, 15),
-          utterances: liveUtterances,
+          utterances: liveUtterancesRef.current.length > 0 ? liveUtterancesRef.current : liveUtterances,
           userName: userName,
         }),
       });
