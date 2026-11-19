@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { inMemoryStore } from "@/lib/db";
-import { Meeting } from "@/types";
+import { inMemoryStore, dbPool, SEED_AGENTS } from "@/lib/db";
+import { AIAgent, Meeting } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +12,44 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const agent = inMemoryStore.getAgent(body.agentId || "agent-sarah");
+    const targetAgentId = body.agentId;
+
+    let agent: AIAgent | undefined = targetAgentId ? inMemoryStore.getAgent(targetAgentId) : undefined;
+
+    // If agent is not in memory, query Neon database directly
+    if (!agent && targetAgentId && dbPool) {
+      try {
+        const res = await dbPool.query("SELECT * FROM agents WHERE id = $1;", [targetAgentId]);
+        if (res.rows[0]) {
+          const row = res.rows[0];
+          agent = {
+            id: row.id,
+            name: row.name,
+            role: row.role,
+            avatar: row.avatar,
+            bio: row.bio,
+            systemPrompt: row.system_prompt,
+            voice: row.voice,
+            tags: Array.isArray(row.tags) ? row.tags : typeof row.tags === "string" ? JSON.parse(row.tags) : [],
+          };
+          inMemoryStore.addAgent(agent);
+        }
+      } catch (e) {
+        console.warn("Neon agent lookup error:", e);
+      }
+    }
+
+    if (!agent) {
+      agent = targetAgentId ? inMemoryStore.getAgent(targetAgentId) : undefined;
+    }
+    if (!agent) {
+      agent = inMemoryStore.getAgents()[0] || SEED_AGENTS[0];
+    }
 
     const newMeeting: Meeting = {
       id: `meet-${Date.now()}`,
-      title: body.title || `Live Strategy Session with ${agent?.name || "AI Specialist"}`,
-      agentId: agent?.id || "agent-sarah",
+      title: body.title || `Live Strategy Session with ${agent.name}`,
+      agentId: agent.id,
       agent: agent,
       userId: body.userId || "user-default-1",
       status: "live",

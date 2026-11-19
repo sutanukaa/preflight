@@ -67,6 +67,7 @@ export const SEED_AGENTS: AIAgent[] = [
 ];
 
 const CACHE_FILE = path.join(process.cwd(), ".meetings-cache.json");
+const AGENTS_CACHE_FILE = path.join(process.cwd(), ".agents-cache.json");
 
 // Persistent store with automatic fallback creation
 class PersistentStore {
@@ -77,6 +78,7 @@ class PersistentStore {
   constructor() {
     SEED_AGENTS.forEach((a) => this.agents.set(a.id, a));
     this.loadFromDisk();
+    this.syncFromNeon();
   }
 
   private loadFromDisk() {
@@ -88,8 +90,15 @@ class PersistentStore {
           data.forEach((m: Meeting) => this.meetings.set(m.id, m));
         }
       }
+      if (fs.existsSync(AGENTS_CACHE_FILE)) {
+        const rawAgents = fs.readFileSync(AGENTS_CACHE_FILE, "utf-8");
+        const dataAgents = JSON.parse(rawAgents);
+        if (Array.isArray(dataAgents)) {
+          dataAgents.forEach((a: AIAgent) => this.agents.set(a.id, a));
+        }
+      }
     } catch (e) {
-      console.warn("Failed to read meetings cache:", e);
+      console.warn("Failed to read cache:", e);
     }
   }
 
@@ -99,6 +108,42 @@ class PersistentStore {
       fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2), "utf-8");
     } catch (e) {
       console.warn("Failed to write meetings cache:", e);
+    }
+  }
+
+  private persistAgents() {
+    try {
+      const data = Array.from(this.agents.values());
+      fs.writeFileSync(AGENTS_CACHE_FILE, JSON.stringify(data, null, 2), "utf-8");
+    } catch (e) {
+      console.warn("Failed to write agents cache:", e);
+    }
+  }
+
+  async syncFromNeon() {
+    if (!dbPool) return;
+    try {
+      const res = await dbPool.query("SELECT * FROM agents;");
+      for (const row of res.rows) {
+        const agent: AIAgent = {
+          id: row.id,
+          name: row.name,
+          role: row.role,
+          avatar: row.avatar,
+          bio: row.bio,
+          systemPrompt: row.system_prompt,
+          voice: row.voice,
+          tags: Array.isArray(row.tags)
+            ? row.tags
+            : typeof row.tags === "string"
+            ? JSON.parse(row.tags)
+            : [],
+        };
+        this.agents.set(agent.id, agent);
+      }
+      this.persistAgents();
+    } catch (e) {
+      console.warn("Neon initial agents sync note:", (e as Error).message);
     }
   }
 
@@ -112,6 +157,7 @@ class PersistentStore {
 
   addAgent(agent: AIAgent): AIAgent {
     this.agents.set(agent.id, agent);
+    this.persistAgents();
     if (dbPool) {
       dbPool
         .query(

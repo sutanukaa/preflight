@@ -9,5 +9,6 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 .meetings-cache.json
+.agents-cache.json
 public/recordings/*
 !public/recordings/.gitkeep

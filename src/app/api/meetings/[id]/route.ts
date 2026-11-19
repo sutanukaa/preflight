@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { inMemoryStore } from "@/lib/db";
+import { inMemoryStore, dbPool } from "@/lib/db";
 import { inngest } from "@/lib/inngest/client";
 import { TranscriptUtterance } from "@/types";
 import { generateMeetingSummaryWithGemini } from "@/lib/ai-analysis";
@@ -15,6 +15,36 @@ export async function GET(
 
   if (!meeting) {
     return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
+  }
+
+  // Ensure agent is fully populated
+  if ((!meeting.agent || meeting.agent.id !== meeting.agentId) && meeting.agentId) {
+    let resolvedAgent = inMemoryStore.getAgent(meeting.agentId);
+    if (!resolvedAgent && dbPool) {
+      try {
+        const aRes = await dbPool.query("SELECT * FROM agents WHERE id = $1;", [meeting.agentId]);
+        if (aRes.rows[0]) {
+          const row = aRes.rows[0];
+          resolvedAgent = {
+            id: row.id,
+            name: row.name,
+            role: row.role,
+            avatar: row.avatar,
+            bio: row.bio,
+            systemPrompt: row.system_prompt,
+            voice: row.voice,
+            tags: Array.isArray(row.tags) ? row.tags : typeof row.tags === "string" ? JSON.parse(row.tags) : [],
+          };
+          inMemoryStore.addAgent(resolvedAgent);
+        }
+      } catch (err) {
+        console.warn("Neon meeting agent fetch error:", err);
+      }
+    }
+    if (resolvedAgent) {
+      meeting.agent = resolvedAgent;
+      inMemoryStore.updateMeeting(meeting.id, { agent: resolvedAgent });
+    }
   }
 
   return NextResponse.json({ meeting });
