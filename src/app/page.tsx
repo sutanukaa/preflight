@@ -19,12 +19,17 @@ import {
 } from "lucide-react";
 import { AIAgent, Meeting } from "@/types";
 import { CreateAgentModal } from "@/components/CreateAgentModal";
+import { useSession } from "@/lib/auth-client";
+import { promptSignIn, isUserLoggedIn } from "@/components/SignInModal";
 
 export default function DashboardPage() {
+  const { data: authSession } = useSession();
   const [agents, setAgents] = useState<AIAgent[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const isLoggedIn = !!authSession?.user || isUserLoggedIn();
 
   useEffect(() => {
     async function fetchData() {
@@ -68,7 +73,13 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              if (!isLoggedIn) {
+                promptSignIn("/");
+              } else {
+                setIsModalOpen(true);
+              }
+            }}
             className="flex items-center gap-2 px-3.5 py-2 rounded-md border border-line bg-surface text-ink text-xs font-semibold hover:bg-canvas transition-colors shadow-subtle"
           >
             <Plus className="w-3.5 h-3.5 text-muted" />
@@ -76,6 +87,12 @@ export default function DashboardPage() {
           </button>
           <Link
             href="/meeting/new"
+            onClick={(e) => {
+              if (!isLoggedIn) {
+                e.preventDefault();
+                promptSignIn("/meeting/new");
+              }
+            }}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-colors shadow-subtle"
           >
             <Video className="w-4 h-4" />
@@ -198,6 +215,12 @@ export default function DashboardPage() {
               {/* Start Call CTA */}
               <Link
                 href={`/meeting/new?agentId=${agent.id}`}
+                onClick={(e) => {
+                  if (!isLoggedIn) {
+                    e.preventDefault();
+                    promptSignIn(`/meeting/new?agentId=${agent.id}`);
+                  }
+                }}
                 className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-md bg-canvas border border-line text-xs font-semibold text-ink group-hover:bg-brand group-hover:text-white group-hover:border-brand transition-all shadow-subtle"
               >
                 <Video className="w-3.5 h-3.5" />
@@ -234,6 +257,12 @@ export default function DashboardPage() {
             <div className="pt-2">
               <Link
                 href="/meeting/new"
+                onClick={(e) => {
+                  if (!isLoggedIn) {
+                    e.preventDefault();
+                    promptSignIn("/meeting/new");
+                  }
+                }}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-colors shadow-subtle"
               >
                 <Video className="w-3.5 h-3.5" />

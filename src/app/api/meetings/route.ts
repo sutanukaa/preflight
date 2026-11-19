@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { inMemoryStore, dbPool, SEED_AGENTS } from "@/lib/db";
+import { auth, memoryDb } from "@/lib/auth";
 import { AIAgent, Meeting } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +14,30 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // Verify session
+    let sessionUser: { id: string; name?: string } | null = null;
+    try {
+      const session = await auth.api.getSession({
+        headers: await headers(),
+      });
+      if (session?.user) {
+        sessionUser = session.user;
+      }
+    } catch {}
+
+    const resolvedUserId =
+      sessionUser?.id ||
+      body.userId ||
+      (memoryDb.user.length > 0 ? memoryDb.user[memoryDb.user.length - 1].id : null);
+
+    if (!resolvedUserId) {
+      return NextResponse.json(
+        { error: "Authentication required. Please sign in to create or launch an AI consultation room." },
+        { status: 401 }
+      );
+    }
+
     const targetAgentId = body.agentId;
 
     let agent: AIAgent | undefined = targetAgentId ? inMemoryStore.getAgent(targetAgentId) : undefined;
@@ -51,7 +77,7 @@ export async function POST(req: NextRequest) {
       title: body.title || `Live Strategy Session with ${agent.name}`,
       agentId: agent.id,
       agent: agent,
-      userId: body.userId || "user-default-1",
+      userId: resolvedUserId,
       status: "live",
       startedAt: new Date().toISOString(),
       durationSeconds: 0,

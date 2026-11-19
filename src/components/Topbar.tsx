@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LogIn, Video, LogOut, Loader2 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
+import { promptSignIn } from "@/components/SignInModal";
 
 interface UserInfo {
   id: string;
@@ -131,6 +132,12 @@ export function Topbar() {
         {/* Quick Start Call button */}
         <Link
           href="/meeting/new"
+          onClick={(e) => {
+            if (!user) {
+              e.preventDefault();
+              promptSignIn("/meeting/new");
+            }
+          }}
           className="flex items-center gap-2 px-3.5 py-1.5 rounded-md bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-colors shadow-subtle"
         >
           <Video className="w-3.5 h-3.5" />

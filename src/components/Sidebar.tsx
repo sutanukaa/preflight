@@ -11,6 +11,7 @@ import {
   Plus,
 } from "lucide-react";
 import { Meeting } from "@/types";
+import { promptSignIn, isUserLoggedIn } from "@/components/SignInModal";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -96,6 +97,12 @@ export function Sidebar() {
               <span>No recorded calls yet.</span>
               <Link
                 href="/meeting/new"
+                onClick={(e) => {
+                  if (!isUserLoggedIn()) {
+                    e.preventDefault();
+                    promptSignIn("/meeting/new");
+                  }
+                }}
                 className="text-brand font-semibold hover:underline block mt-1"
               >
                 + Launch your first call

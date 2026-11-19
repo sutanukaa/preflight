@@ -23,15 +23,29 @@ import {
   Radio,
   Hand,
   RotateCcw,
+  Lock,
+  LogIn,
 } from "lucide-react";
 import { AIAgent, Meeting, TranscriptUtterance } from "@/types";
 import { Waveform } from "@/components/Waveform";
 import { useSession } from "@/lib/auth-client";
+import { promptSignIn, isUserLoggedIn } from "@/components/SignInModal";
 
 export default function MeetingRoomPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const { data: authSession } = useSession();
+  const [needsAuth, setNeedsAuth] = useState(false);
+
+  useEffect(() => {
+    const loggedIn = !!authSession?.user || isUserLoggedIn();
+    if (!loggedIn) {
+      setNeedsAuth(true);
+      promptSignIn(typeof window !== "undefined" ? window.location.href : "/");
+    } else {
+      setNeedsAuth(false);
+    }
+  }, [authSession]);
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [userName, setUserName] = useState("You");
@@ -1673,6 +1687,45 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
             <span>Establishing WebRTC &amp; Neural Audio Channels</span>
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (needsAuth) {
+    return (
+      <div className="min-h-[75vh] flex flex-col items-center justify-center p-6">
+        <div className="max-w-md w-full bg-surface border border-line rounded-xl shadow-card p-8 text-center space-y-5 animate-in zoom-in-95 duration-200">
+          <div className="w-14 h-14 rounded-full bg-brand-light text-brand mx-auto flex items-center justify-center border border-brand/20 shadow-subtle">
+            <Lock className="w-6 h-6 text-brand" />
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-brand font-semibold">
+              Authentication Required
+            </span>
+            <h2 className="text-lg font-bold text-ink">Sign in to Join Meeting</h2>
+            <p className="text-xs text-muted leading-relaxed max-w-sm mx-auto">
+              You must be signed in with Google to enter this AI specialist consultation room and participate in the live session.
+            </p>
+          </div>
+
+          <div className="pt-2 space-y-2.5">
+            <button
+              onClick={() => promptSignIn(typeof window !== "undefined" ? window.location.href : "/")}
+              className="w-full py-2.5 px-4 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-all shadow-subtle flex items-center justify-center gap-2"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Sign in with Google to Join</span>
+            </button>
+
+            <button
+              onClick={() => router.push("/")}
+              className="w-full py-2 px-4 rounded-lg text-xs font-medium text-muted hover:text-ink hover:bg-canvas transition-colors"
+            >
+              Back to Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );

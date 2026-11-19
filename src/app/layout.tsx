@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "@/styles/globals.css";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
+import { SignInModal } from "@/components/SignInModal";
 
 export const metadata: Metadata = {
   title: "Clarity AI — Video Interaction & Post-Meeting Intelligence",
@@ -42,6 +43,7 @@ export default function RootLayout({
           <Topbar />
           <main className="flex-1 p-8 max-w-[1440px] w-full mx-auto">{children}</main>
         </div>
+        <SignInModal />
       </body>
     </html>
   );

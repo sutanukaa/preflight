@@ -7,12 +7,17 @@ import Link from "next/link";
 import { Users, Plus, Video, Sparkles, Filter, CheckCircle2 } from "lucide-react";
 import { AIAgent } from "@/types";
 import { CreateAgentModal } from "@/components/CreateAgentModal";
+import { useSession } from "@/lib/auth-client";
+import { promptSignIn, isUserLoggedIn } from "@/components/SignInModal";
 
 export default function AgentsDirectoryPage() {
+  const { data: authSession } = useSession();
   const [agents, setAgents] = useState<AIAgent[]>([]);
   const [selectedTag, setSelectedTag] = useState<string>("All");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const isLoggedIn = !!authSession?.user || isUserLoggedIn();
 
   useEffect(() => {
     async function fetchAgents() {
@@ -57,7 +62,13 @@ export default function AgentsDirectoryPage() {
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            if (!isLoggedIn) {
+              promptSignIn("/specialists");
+            } else {
+              setIsModalOpen(true);
+            }
+          }}
           className="flex items-center gap-2 px-4 py-2 rounded-md bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-colors shadow-subtle self-start md:self-auto"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -156,6 +167,12 @@ export default function AgentsDirectoryPage() {
               )}
               <Link
                 href={`/meeting/new?agentId=${agent.id}`}
+                onClick={(e) => {
+                  if (!isLoggedIn) {
+                    e.preventDefault();
+                    promptSignIn(`/meeting/new?agentId=${agent.id}`);
+                  }
+                }}
                 className="flex items-center gap-2 px-3.5 py-1.5 rounded bg-brand text-white text-xs font-semibold hover:bg-brand-deep transition-colors shadow-subtle"
               >
                 <Video className="w-3.5 h-3.5" />
