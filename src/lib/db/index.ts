@@ -4,13 +4,19 @@ import * as schema from "./schema";
 import { AIAgent, Meeting, MeetingChatMessage } from "@/types";
 import fs from "fs";
 import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config({ path: ".env.local", override: true });
 
 const { Pool } = pg;
 
 export const dbPool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+      ssl:
+        process.env.NODE_ENV === "production" || process.env.DATABASE_URL.includes("neon.tech")
+          ? { rejectUnauthorized: false }
+          : undefined,
     })
   : null;
 
@@ -106,6 +112,32 @@ class PersistentStore {
 
   addAgent(agent: AIAgent): AIAgent {
     this.agents.set(agent.id, agent);
+    if (dbPool) {
+      dbPool
+        .query(
+          `INSERT INTO agents (id, name, role, avatar, bio, system_prompt, voice, tags, total_sessions, average_rating)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 98)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             role = EXCLUDED.role,
+             avatar = EXCLUDED.avatar,
+             bio = EXCLUDED.bio,
+             system_prompt = EXCLUDED.system_prompt,
+             voice = EXCLUDED.voice,
+             tags = EXCLUDED.tags;`,
+          [
+            agent.id,
+            agent.name,
+            agent.role,
+            agent.avatar,
+            agent.bio,
+            agent.systemPrompt,
+            agent.voice,
+            JSON.stringify(agent.tags || []),
+          ]
+        )
+        .catch((e) => console.warn("Neon sync agent note:", e.message));
+    }
     return agent;
   }
 
@@ -144,6 +176,30 @@ class PersistentStore {
   createMeeting(meeting: Meeting): Meeting {
     this.meetings.set(meeting.id, meeting);
     this.persist();
+
+    if (dbPool) {
+      dbPool
+        .query(
+          `INSERT INTO meetings (id, title, agent_id, user_id, status, duration_seconds, recording_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (id) DO UPDATE SET
+             title = EXCLUDED.title,
+             status = EXCLUDED.status,
+             duration_seconds = EXCLUDED.duration_seconds,
+             recording_url = EXCLUDED.recording_url;`,
+          [
+            meeting.id,
+            meeting.title,
+            meeting.agentId || "agent-david",
+            meeting.userId || "user-default-1",
+            meeting.status || "live",
+            meeting.durationSeconds || 0,
+            meeting.recordingUrl || "",
+          ]
+        )
+        .catch((e) => console.warn("Neon sync createMeeting note:", e.message));
+    }
+
     return meeting;
   }
 
@@ -152,6 +208,54 @@ class PersistentStore {
     const updated = { ...existing, ...updates };
     this.meetings.set(id, updated);
     this.persist();
+
+    if (dbPool) {
+      dbPool
+        .query(
+          `INSERT INTO meetings (id, title, agent_id, user_id, status, duration_seconds, recording_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (id) DO UPDATE SET
+             title = EXCLUDED.title,
+             status = EXCLUDED.status,
+             duration_seconds = EXCLUDED.duration_seconds,
+             recording_url = EXCLUDED.recording_url;`,
+          [
+            updated.id,
+            updated.title,
+            updated.agentId || "agent-david",
+            updated.userId || "user-default-1",
+            updated.status || "completed",
+            updated.durationSeconds || 0,
+            updated.recordingUrl || "",
+          ]
+        )
+        .catch((e) => console.warn("Neon sync updateMeeting note:", e.message));
+
+      if (updated.summary) {
+        dbPool
+          .query(
+            `INSERT INTO summaries (id, meeting_id, overview, topics, action_items, key_takeaways, sentiment)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (meeting_id) DO UPDATE SET
+               overview = EXCLUDED.overview,
+               topics = EXCLUDED.topics,
+               action_items = EXCLUDED.action_items,
+               key_takeaways = EXCLUDED.key_takeaways,
+               sentiment = EXCLUDED.sentiment;`,
+            [
+              `sum-${updated.id}`,
+              updated.id,
+              updated.summary.overview,
+              JSON.stringify(updated.summary.topics || []),
+              JSON.stringify(updated.summary.actionItems || []),
+              JSON.stringify(updated.summary.keyTakeaways || []),
+              JSON.stringify(updated.summary.sentiment || {}),
+            ]
+          )
+          .catch((e) => console.warn("Neon sync summary note:", e.message));
+      }
+    }
+
     return updated;
   }
 
