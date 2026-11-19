@@ -51,15 +51,29 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
-  // Sync real user name from Google OAuth session
+  // Sync real user name from Google OAuth session or localStorage
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("clarity_user");
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed?.name) setUserName(parsed.name);
+        } catch {}
+      }
+    }
     if (authSession?.user?.name) {
       setUserName(authSession.user.name);
     } else {
       fetch("/api/auth/me")
         .then((r) => r.json())
         .then((d) => {
-          if (d?.user?.name) setUserName(d.user.name);
+          if (d?.user?.name) {
+            setUserName(d.user.name);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("clarity_user", JSON.stringify(d.user));
+            }
+          }
         })
         .catch(() => {});
     }

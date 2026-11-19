@@ -17,33 +17,54 @@ export function Topbar() {
   const { data: authSession, isPending } = useSession();
   const [user, setUser] = useState<UserInfo | null>(null);
 
-  // Sync user state from Better Auth session or direct session endpoint
+  // Sync user state from Better Auth session, localStorage, or /api/auth/me
   useEffect(() => {
+    // 1. Instantly check localStorage to prevent logged-out flicker
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("clarity_user");
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed?.name) {
+            setUser(parsed);
+          }
+        } catch {}
+      }
+    }
+
     if (authSession?.user) {
-      setUser({
+      const u: UserInfo = {
         id: authSession.user.id,
         name: authSession.user.name,
         email: authSession.user.email,
         image: authSession.user.image || undefined,
         plan: "Free",
-      });
+      };
+      setUser(u);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("clarity_user", JSON.stringify(u));
+      }
       return;
     }
 
     // Direct fetch fallback for session
     async function checkSession() {
       try {
-        const res = await fetch("/api/auth/get-session");
+        const res = await fetch("/api/auth/me");
         if (res.ok) {
           const data = await res.json();
           if (data?.user) {
-            setUser({
+            const u: UserInfo = {
               id: data.user.id,
               name: data.user.name,
               email: data.user.email,
               image: data.user.image || undefined,
               plan: "Free",
-            });
+            };
+            setUser(u);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("clarity_user", JSON.stringify(u));
+            }
           }
         }
       } catch (err) {
@@ -74,6 +95,9 @@ export function Topbar() {
 
   async function handleSignOut() {
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("clarity_user");
+      }
       await signOut();
       setUser(null);
       window.location.reload();

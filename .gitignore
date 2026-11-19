@@ -10,5 +10,6 @@ coverage/
 .DS_Store
 .meetings-cache.json
 .agents-cache.json
+.auth-cache.json
 public/recordings/*
 !public/recordings/.gitkeep
