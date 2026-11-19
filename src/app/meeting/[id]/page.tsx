@@ -83,6 +83,9 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const animFrameIdRef = useRef<number | null>(null);
   const agentAvatarImgRef = useRef<HTMLImageElement | null>(null);
   const recordingVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const hasGreetedRef = useRef(false);
+  const speechSeqRef = useRef(0);
+  const speechAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
@@ -260,15 +263,26 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
   }
 
-  // Play spoken response via Neural Cloud Voice (consistent across all turns)
+  // Play spoken response via Neural Cloud Voice (with echo-cancellation & deduplication)
   async function speakWithSyntheticVoice(text: string) {
-    if (!voiceAudioEnabled || typeof window === "undefined") {
+    if (!voiceAudioEnabled || typeof window === "undefined" || !text.trim()) {
       setAgentSpeaking(false);
       agentSpeakingRef.current = false;
       return;
     }
 
-    // Cancel ongoing buffer source, audio element, or browser utterance
+    // 1. Advance speech sequence token to invalidate any previous in-flight speech
+    const speechId = ++speechSeqRef.current;
+
+    // 2. Abort any previous in-flight TTS fetch immediately
+    if (speechAbortControllerRef.current) {
+      try { speechAbortControllerRef.current.abort(); } catch {}
+      speechAbortControllerRef.current = null;
+    }
+    const abortController = new AbortController();
+    speechAbortControllerRef.current = abortController;
+
+    // 3. Immediately halt any currently playing audio so voices never overlap or echo
     if (activeBufferSourceRef.current) {
       try {
         activeBufferSourceRef.current.stop();
@@ -278,12 +292,22 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     if (activeAudioRef.current) {
       try {
         activeAudioRef.current.pause();
+        activeAudioRef.current.src = "";
         activeAudioRef.current = null;
       } catch {}
     }
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+
+    // 4. Mute speech recognition while agent speaks to prevent laptop mic acoustic echo loop
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {}
+    }
+    setIsListening(false);
+    isListeningRef.current = false;
 
     // If a custom desktop browser voice is explicitly chosen from the dropdown:
     if (selectedVoiceURI !== "auto" && selectedVoiceURI !== "cloud-tts") {
@@ -294,98 +318,118 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
     const agentVoice = meetingRef.current?.agent?.voice || "alloy";
 
-    // 1. Primary path: Web Audio pipeline (mixes into recorder destination AND user speakers)
-    const audioNodes = getOrCreateAudioContext();
-    if (audioNodes) {
-      const { audioCtx, audioDest } = audioNodes;
-      if (audioCtx.state === "suspended") {
-        try {
-          await audioCtx.resume();
-        } catch {}
-      }
-
-      try {
-        setAgentSpeaking(true);
-        agentSpeakingRef.current = true;
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
-        const res = await fetch(
-          `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(agentVoice)}`
-        );
-        if (!res.ok) throw new Error(`TTS status ${res.status}`);
-
-        const arrayBuffer = await res.arrayBuffer();
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-
-        // Output to user's physical speakers:
-        source.connect(audioCtx.destination);
-        // Output to MediaRecorder's mixed destination node:
-        source.connect(audioDest);
-
-        activeBufferSourceRef.current = source;
-
-        source.onended = () => {
-          setAgentSpeaking(false);
-          agentSpeakingRef.current = false;
-          accumulatedSpeechRef.current = "";
-          setUserSpeechInput("");
-          if (
-            micActiveRef.current &&
-            !isEndingCallRef.current &&
-            !isListeningRef.current
-          ) {
-            try {
-              recognitionRef.current?.start();
-            } catch {}
-          }
-        };
-
-        source.start(0);
-        return;
-      } catch (webAudioErr) {
-        console.warn("WebAudio pipeline notice, using HTMLAudio neural stream:", webAudioErr);
-      }
-    }
-
-    // 2. Fallback path: HTMLAudioElement playing the EXACT SAME neural voice (NEVER swaps to robotic desktop voice)
     try {
       setAgentSpeaking(true);
       agentSpeakingRef.current = true;
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
-      const audio = new Audio(
-        `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(agentVoice)}`
+      const res = await fetch(
+        `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(agentVoice)}`,
+        { signal: abortController.signal }
       );
+      if (!res.ok) throw new Error(`TTS status ${res.status}`);
+
+      // Check if another speech superseded this one while downloading
+      if (speechSeqRef.current !== speechId) return;
+
+      const arrayBuffer = await res.arrayBuffer();
+      if (speechSeqRef.current !== speechId) return;
+
+      const audioNodes = getOrCreateAudioContext();
+      if (audioNodes && audioNodes.audioCtx.state !== "closed") {
+        const { audioCtx, audioDest } = audioNodes;
+        if (audioCtx.state === "suspended") {
+          try {
+            await audioCtx.resume();
+          } catch {}
+        }
+
+        if (audioCtx.state === "running") {
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          if (speechSeqRef.current !== speechId) return;
+
+          const source = audioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+
+          // Output to user physical speakers
+          source.connect(audioCtx.destination);
+          // Output to MediaRecorder destination for meeting recording
+          source.connect(audioDest);
+
+          activeBufferSourceRef.current = source;
+
+          source.onended = () => {
+            if (speechSeqRef.current !== speechId) return;
+            setAgentSpeaking(false);
+            agentSpeakingRef.current = false;
+            accumulatedSpeechRef.current = "";
+            setUserSpeechInput("");
+
+            // 300ms acoustic decay delay before reopening microphone
+            setTimeout(() => {
+              if (
+                speechSeqRef.current === speechId &&
+                micActiveRef.current &&
+                !isEndingCallRef.current &&
+                !isListeningRef.current &&
+                !agentSpeakingRef.current
+              ) {
+                try {
+                  recognitionRef.current?.start();
+                } catch {}
+              }
+            }, 300);
+          };
+
+          source.start(0);
+          return;
+        }
+      }
+
+      // Fallback: HTML5 Audio if AudioContext is not yet running
+      const blob = new Blob([arrayBuffer], { type: "audio/mp3" });
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
       activeAudioRef.current = audio;
 
       audio.onended = () => {
+        if (speechSeqRef.current !== speechId) return;
         setAgentSpeaking(false);
         agentSpeakingRef.current = false;
         accumulatedSpeechRef.current = "";
         setUserSpeechInput("");
-        if (
-          micActiveRef.current &&
-          !isEndingCallRef.current &&
-          !isListeningRef.current
-        ) {
-          try {
-            recognitionRef.current?.start();
-          } catch {}
-        }
+        URL.revokeObjectURL(audioUrl);
+
+        setTimeout(() => {
+          if (
+            speechSeqRef.current === speechId &&
+            micActiveRef.current &&
+            !isEndingCallRef.current &&
+            !isListeningRef.current &&
+            !agentSpeakingRef.current
+          ) {
+            try {
+              recognitionRef.current?.start();
+            } catch {}
+          }
+        }, 300);
       };
 
       audio.onerror = () => {
+        if (speechSeqRef.current !== speechId) return;
         setAgentSpeaking(false);
         agentSpeakingRef.current = false;
+        URL.revokeObjectURL(audioUrl);
       };
 
       await audio.play();
-    } catch {
-      setAgentSpeaking(false);
-      agentSpeakingRef.current = false;
+    } catch (e: any) {
+      if (e?.name === "AbortError") return;
+      console.warn("Speech synthesis notice:", e);
+      if (speechSeqRef.current === speechId) {
+        setAgentSpeaking(false);
+        agentSpeakingRef.current = false;
+      }
     }
   }
 
@@ -459,19 +503,23 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         if (data.meeting) {
           setMeeting(data.meeting);
 
-          const agentName = data.meeting.agent?.name || "AI Specialist";
-          const initGreeting = `Hello! I am ${agentName}. Stream Video WebRTC connection established. What would you like to review or discuss today?`;
+          // Only speak greeting once per room session to eliminate double-greeting echo
+          if (!hasGreetedRef.current) {
+            hasGreetedRef.current = true;
+            const agentName = data.meeting.agent?.name || "AI Specialist";
+            const initGreeting = `Hello! I am ${agentName}. What would you like to review or discuss today?`;
 
-          const initUtterance: TranscriptUtterance = {
-            id: `u-init-${Date.now()}`,
-            speaker: "agent",
-            speakerName: agentName,
-            timestamp: "00:02",
-            seconds: 2,
-            text: initGreeting,
-          };
-          setLiveUtterances([initUtterance]);
-          speakWithSyntheticVoice(initGreeting);
+            const initUtterance: TranscriptUtterance = {
+              id: `u-init-${Date.now()}`,
+              speaker: "agent",
+              speakerName: agentName,
+              timestamp: "00:02",
+              seconds: 2,
+              text: initGreeting,
+            };
+            setLiveUtterances([initUtterance]);
+            speakWithSyntheticVoice(initGreeting);
+          }
         }
 
         // Fetch Stream Video token
@@ -487,9 +535,22 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     loadMeeting();
 
     return () => {
+      speechSeqRef.current++;
+      if (speechAbortControllerRef.current) {
+        try { speechAbortControllerRef.current.abort(); } catch {}
+        speechAbortControllerRef.current = null;
+      }
+      if (activeBufferSourceRef.current) {
+        try {
+          activeBufferSourceRef.current.stop();
+          activeBufferSourceRef.current = null;
+        } catch {}
+      }
       if (activeAudioRef.current) {
         try {
           activeAudioRef.current.pause();
+          activeAudioRef.current.src = "";
+          activeAudioRef.current = null;
         } catch {}
       }
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -500,6 +561,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
   // Instant Interrupt: Stops agent speech, clears pending requests, and frees mic
   function interruptAgent() {
+    speechSeqRef.current++;
+    if (speechAbortControllerRef.current) {
+      try { speechAbortControllerRef.current.abort(); } catch {}
+      speechAbortControllerRef.current = null;
+    }
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (abortControllerRef.current) {
       try { abortControllerRef.current.abort(); } catch {}
@@ -514,6 +580,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     if (activeAudioRef.current) {
       try {
         activeAudioRef.current.pause();
+        activeAudioRef.current.src = "";
         activeAudioRef.current = null;
       } catch {}
     }
