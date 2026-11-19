@@ -431,10 +431,16 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
             <div className="relative group cursor-pointer" onClick={togglePlayPause}>
               <video
                 ref={videoRef}
-                src={meeting.recordingUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"}
+                src={
+                  meeting.recordingUrl?.replace(/\.webm$/, ".mp4") ||
+                  meeting.recordingUrl ||
+                  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                }
                 onError={(e) => {
                   const target = e.currentTarget;
-                  if (!target.src.includes("BigBuckBunny")) {
+                  if (target.src.endsWith(".mp4") && meeting.recordingUrl && !meeting.recordingUrl.endsWith(".mp4")) {
+                    target.src = meeting.recordingUrl;
+                  } else if (!target.src.includes("BigBuckBunny")) {
                     target.src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
                   }
                 }}

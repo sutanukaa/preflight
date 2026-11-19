@@ -34,8 +34,12 @@ export async function POST(
     const filePath = path.join(publicDir, fileName);
     fs.writeFileSync(filePath, buffer);
 
-    // Automatically remux WebM with ffmpeg to write proper EBML cues and duration headers for instant browser playback
-    const tempFixedPath = path.join(publicDir, `${id}_fixed.webm`);
+    // Automatically transcode to pristine, fast-start MP4 (H.264 + AAC)
+    // This repairs duplicate/non-monotonic timestamps and eliminates black-screen decoder stalls in browsers
+    const mp4FileName = `${id}.mp4`;
+    const mp4Path = path.join(publicDir, mp4FileName);
+    let finalUrl = `/recordings/${fileName}`;
+
     try {
       await execFileAsync(
         "ffmpeg",
@@ -46,27 +50,31 @@ export async function POST(
           "ignore_err",
           "-i",
           filePath,
-          "-c",
-          "copy",
-          tempFixedPath,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-crf",
+          "23",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          "-movflags",
+          "+faststart",
+          mp4Path,
           "-y",
         ],
         { maxBuffer: 50 * 1024 * 1024 }
       );
-      if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 1000) {
-        fs.unlinkSync(filePath);
-        fs.renameSync(tempFixedPath, filePath);
+      if (fs.existsSync(mp4Path) && fs.statSync(mp4Path).size > 1000) {
+        finalUrl = `/recordings/${mp4FileName}`;
       }
     } catch (ffmpegErr) {
-      console.warn("FFmpeg remux note (using raw capture):", ffmpegErr);
-      if (fs.existsSync(tempFixedPath)) {
-        try {
-          fs.unlinkSync(tempFixedPath);
-        } catch {}
-      }
+      console.warn("FFmpeg MP4 transcode note (using raw capture):", ffmpegErr);
     }
 
-    const recordingUrl = `/recordings/${fileName}`;
+    const recordingUrl = finalUrl;
     inMemoryStore.updateMeeting(id, { recordingUrl });
 
     return NextResponse.json({ success: true, recordingUrl });
