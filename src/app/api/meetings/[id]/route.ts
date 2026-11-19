@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { inMemoryStore } from "@/lib/db";
 import { inngest } from "@/lib/inngest/client";
 import { TranscriptUtterance } from "@/types";
+import { generateMeetingSummaryWithGemini } from "@/lib/ai-analysis";
 
 export const dynamic = "force-dynamic";
 
@@ -96,78 +97,20 @@ export async function POST(
             },
           ];
 
+      // 3. Generate Gemini-powered post-meeting intelligence
+      const meetingSummary = await generateMeetingSummaryWithGemini(
+        id,
+        finalTranscripts,
+        userName,
+        agentName
+      );
+
       const updatedMeeting = inMemoryStore.updateMeeting(id, {
         status: "completed",
         durationSeconds: durationSeconds || 165,
         endedAt: new Date().toISOString(),
         transcripts: finalTranscripts,
-        summary: {
-          meetingId: id,
-          overview: `Live interactive session with ${agentName} focusing on real-time video architecture, Inngest background event processing, and transcript seeking synchronization.`,
-          keyTakeaways: [
-            `Stream Video handles WebRTC media egress with sub-second connection times.`,
-            `Inngest ensures reliable background transcription without edge function timeout risk.`,
-            `Post-meeting suite provides synchronized video playback with clickable topic milestones.`,
-            `Meeting AI Copilot allows conversational Q&A over the full transcript.`,
-          ],
-          topics: [
-            {
-              id: `top-${id}-1`,
-              title: "Session Initiation & Problem Statement",
-              timestamp: "00:04",
-              seconds: 4,
-              summary: "Clarified primary objectives around WebRTC streaming and background pipelines.",
-              bulletPoints: [
-                "Evaluated Stream Video SDK capabilities.",
-                "Established latency budget for OpenAI Realtime voice interaction.",
-              ],
-            },
-            {
-              id: `top-${id}-2`,
-              title: "Event-Driven Processing with Inngest",
-              timestamp: "00:54",
-              seconds: 54,
-              summary: "Decoupled video call termination from asynchronous transcription and topic modeling.",
-              bulletPoints: [
-                "Implemented step-functions for automatic retry and rate-limit backoff.",
-                "Ensured database updates are idempotent.",
-              ],
-            },
-            {
-              id: `top-${id}-3`,
-              title: "Video Seeking & Transcript Indexing",
-              timestamp: "02:18",
-              seconds: 138,
-              summary: "Linked player playback head with timestamp-indexed utterances.",
-              bulletPoints: [
-                "Full-text search highlighting across speech lines.",
-                "Instant jump-to-time on topic selection.",
-              ],
-            },
-          ],
-          actionItems: [
-            {
-              id: `act-${id}-1`,
-              task: "Verify WebRTC token generation security parameters",
-              owner: userName,
-              priority: "high",
-              status: "completed",
-            },
-            {
-              id: `act-${id}-2`,
-              task: "Run end-to-end Inngest function test with sample recording payload",
-              owner: "DevOps",
-              priority: "medium",
-              status: "pending",
-            },
-          ],
-          sentiment: {
-            positive: 89,
-            neutral: 9,
-            negative: 2,
-            verdict: "Decisive & Solution-Oriented",
-          },
-        },
+        summary: meetingSummary,
       });
 
       return NextResponse.json({ meeting: updatedMeeting });

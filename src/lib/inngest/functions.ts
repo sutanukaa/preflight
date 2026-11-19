@@ -1,6 +1,7 @@
 import { inngest } from "./client";
 import { inMemoryStore } from "@/lib/db";
-import { ActionItem, MeetingSummary, MeetingTopic, TranscriptUtterance } from "@/types";
+import { MeetingSummary, TranscriptUtterance } from "@/types";
+import { generateMeetingSummaryWithGemini } from "@/lib/ai-analysis";
 
 export const processMeetingEnded = inngest.createFunction(
   {
@@ -71,90 +72,17 @@ export const processMeetingEnded = inngest.createFunction(
       return generated;
     });
 
-    // Step 2: Extract Topics & Timestamps
-    const topics = await step.run("extract-topic-segmentation", async (): Promise<MeetingTopic[]> => {
-      return [
-        {
-          id: `top-1`,
-          title: "Session Scoping & Objective Setting",
-          timestamp: "00:05",
-          seconds: 5,
-          summary: "Identified core business priorities and runtime constraints.",
-          bulletPoints: [
-            "Defined real-time video turnaround targets (<600ms).",
-            "Specified automated background post-processing requirements.",
-          ],
-        },
-        {
-          id: `top-2`,
-          title: "Architecture & Job Orchestration",
-          timestamp: "00:42",
-          seconds: 42,
-          summary: "Decoupled heavy transcription from synchronous HTTP responses using Inngest.",
-          bulletPoints: [
-            "Configured call.ended event payload with media coordinates.",
-            "Established multi-step checkpointing for fault-tolerant retries.",
-          ],
-        },
-        {
-          id: `top-3`,
-          title: "Post-Meeting Intelligence & Search Indexing",
-          timestamp: "01:15",
-          seconds: 75,
-          summary: "Created full-text transcript search and timeline jump synchronization.",
-          bulletPoints: [
-            "Indexed utterances by second offset for instant video seek.",
-            "Generated contextual Q&A embedding vectors.",
-          ],
-        },
-      ];
-    });
-
-    // Step 3: Extract Action Items & Key Takeaways
+    // Step 2: Extract Topics, Timestamps, Action Items & Summary via Gemini
     const summary = await step.run("synthesize-action-items-and-summary", async (): Promise<MeetingSummary> => {
-      const actionItems: ActionItem[] = [
-        {
-          id: `act-1`,
-          task: "Review Inngest webhook security and configure signing secrets",
-          owner: userName,
-          priority: "high",
-          status: "pending",
-        },
-        {
-          id: `act-2`,
-          task: "Deploy Drizzle migrations to Neon PostgreSQL instance",
-          owner: "Backend Team",
-          priority: "high",
-          status: "completed",
-        },
-        {
-          id: `act-3`,
-          task: "Verify Polar billing webhook idempotency",
-          owner: "Product Ops",
-          priority: "medium",
-          status: "pending",
-        },
-      ];
+      const existing = inMemoryStore.getMeeting(meetingId);
+      const agentName = existing?.agent?.name || "AI Specialist";
 
-      const keyTakeaways = [
-        "Inngest handles asynchronous background execution reliably with step-level retries.",
-        "Stream Video provides production WebRTC infrastructure with sub-second call setup.",
-        "Post-call intelligence dashboard enables instantaneous video jumping via transcript clicks.",
-      ];
-
-      return {
+      return await generateMeetingSummaryWithGemini(
         meetingId,
-        overview: "Productive strategy discussion detailing the end-to-end implementation of AI Video Interaction and Post-Meeting Intelligence, including Inngest step functions and searchable transcript indexing.",
-        topics,
-        actionItems,
-        keyTakeaways,
-        sentiment: {
-          positive: 85,
-          neutral: 13,
-          negative: 2,
-          verdict: "High Momentum & Strategic Focus",
-        },
-      };
+        transcript,
+        userName,
+        agentName
+      );
     });
 
     // Step 4: Persist updates to Meeting in Store

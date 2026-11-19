@@ -8,3 +8,6 @@ coverage/
 *.log
 *.tsbuildinfo
 .DS_Store
+.meetings-cache.json
+public/recordings/*
+!public/recordings/.gitkeep

@@ -48,6 +48,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   // Sync real user name from Google OAuth session
   useEffect(() => {
@@ -129,7 +131,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     };
   }, [id]);
 
-  // Request user camera/mic for local preview
+  // Request user camera/mic for local preview and recording
   useEffect(() => {
     async function startCamera() {
       try {
@@ -142,6 +144,33 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           if (localVideoRef.current && !isScreenSharing) {
             localVideoRef.current.srcObject = stream;
           }
+
+          // Initialize MediaRecorder for local call recording
+          if (typeof window !== "undefined" && typeof MediaRecorder !== "undefined") {
+            try {
+              let mimeType = "video/webm;codecs=vp9,opus";
+              if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = "video/webm;codecs=vp8,opus";
+              }
+              if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = "video/webm";
+              }
+
+              const recorder = new MediaRecorder(stream, { mimeType });
+              recordedChunksRef.current = [];
+
+              recorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                  recordedChunksRef.current.push(event.data);
+                }
+              };
+
+              recorder.start(1000); // 1-second chunks
+              mediaRecorderRef.current = recorder;
+            } catch (recErr) {
+              console.warn("MediaRecorder start note:", recErr);
+            }
+          }
         }
       } catch (err) {
         console.warn("Camera/mic permission note:", (err as Error).message);
@@ -150,6 +179,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     startCamera();
 
     return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {}
+      }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -339,6 +373,22 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         recognitionRef.current.stop();
       } catch {}
     }
+
+    // Flush and stop MediaRecorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.requestData();
+        await new Promise((resolve) => {
+          if (!mediaRecorderRef.current) return resolve(null);
+          mediaRecorderRef.current.onstop = () => resolve(null);
+          mediaRecorderRef.current.stop();
+          setTimeout(resolve, 300);
+        });
+      } catch (recErr) {
+        console.warn("Error stopping MediaRecorder:", recErr);
+      }
+    }
+
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
     }
@@ -347,12 +397,27 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
 
     try {
+      // If we have recorded chunks, upload the webm video file
+      if (recordedChunksRef.current.length > 0) {
+        const videoBlob = new Blob(recordedChunksRef.current, { type: "video/webm" });
+        const formData = new FormData();
+        formData.append("video", videoBlob, `${id}.webm`);
+        try {
+          await fetch(`/api/meetings/${id}/recording`, {
+            method: "POST",
+            body: formData,
+          });
+        } catch (uploadErr) {
+          console.warn("Recording upload error:", uploadErr);
+        }
+      }
+
       await fetch(`/api/meetings/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "end_call",
-          durationSeconds: Math.max(callDuration, 30),
+          durationSeconds: Math.max(callDuration, 15),
           utterances: liveUtterances,
           userName: userName,
         }),
