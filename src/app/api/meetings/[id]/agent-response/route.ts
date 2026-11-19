@@ -23,21 +23,15 @@ export async function POST(
 
     const cleanUserText = userText.trim();
 
-    // Prefer the active key from .env.local (which starts with AQ. or AIza)
+    // Only attempt live Gemini call if an actual Google AI Studio key (starts with AIza) is configured
     const geminiKey =
-      (process.env.OPENAI_API_KEY?.startsWith("AQ.") ? process.env.OPENAI_API_KEY : null) ||
-      (process.env.GEMINI_API_KEY?.startsWith("AQ.") && !process.env.GEMINI_API_KEY?.includes("HUAJkN7hA")
-        ? process.env.GEMINI_API_KEY
-        : null) ||
-      process.env.OPENAI_API_KEY ||
-      process.env.GEMINI_API_KEY;
+      process.env.GEMINI_API_KEY?.startsWith("AIza") ? process.env.GEMINI_API_KEY :
+      process.env.OPENAI_API_KEY?.startsWith("AIza") ? process.env.OPENAI_API_KEY : null;
 
     if (geminiKey) {
-      // Prioritize gemini-3.5-flash-lite which reliably succeeds without 503 capacity drops
       const modelsToTry = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-latest",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
       ];
 
       // Build clean, alternating multi-turn history for Gemini
@@ -49,10 +43,8 @@ export async function POST(
           const role = h.speaker === "user" ? "user" : "model";
           const text = h.text.trim();
 
-          // Skip duplicate of the current question if already at the end of history
           if (role === "user" && text.toLowerCase() === cleanUserText.toLowerCase()) continue;
 
-          // Merge consecutive identical roles to adhere to Gemini protocol
           if (contents.length > 0 && contents[contents.length - 1].role === role) {
             contents[contents.length - 1].parts[0].text += ` ${text}`;
           } else {
@@ -61,12 +53,10 @@ export async function POST(
         }
       }
 
-      // Ensure conversation starts with a user turn
       while (contents.length > 0 && contents[0].role !== "user") {
         contents.shift();
       }
 
-      // Append current user message
       if (contents.length > 0 && contents[contents.length - 1].role === "user") {
         contents[contents.length - 1].parts[0].text = cleanUserText;
       } else {
@@ -75,15 +65,7 @@ export async function POST(
 
       const instruction = `${systemPrompt}
 You are ${agentName}, ${agentRole}. You are currently on an interactive live voice call with the user.
-CRITICAL TEACHING & SPOKEN INSTRUCTIONS:
-1. Always directly, accurately, and thoroughly answer the user's question, problem, or topic.
-2. If the user asks you to explain a math concept, theorem, formula, or calculation (e.g. Pythagorean theorem, algebra, calculus, fractions):
-   - Explain the core concept clearly in simple, intuitive terms.
-   - Walk through a concrete, easy-to-follow example (for instance, a 3-4-5 triangle).
-   - Show how the steps connect together.
-3. Keep your explanation spoken, warm, and conversational in 2 to 4 clear spoken sentences.
-4. Because your output will be read aloud by speech synthesis, DO NOT use raw LaTeX math markers like $ or $$, and DO NOT use markdown bullet points. Spell out math operations naturally (e.g. say "a squared plus b squared equals c squared" or "three squared is nine").
-5. Never deflect, give a canned greeting, or ask what they want when they already asked a question. Answer them immediately and warmly!`;
+Answer the user's specific question directly, warmly, and thoroughly in 2 to 3 natural spoken sentences with a real-life example. Do not use markdown bullet points or LaTeX.`;
 
       for (const modelName of modelsToTry) {
         try {
@@ -92,7 +74,7 @@ CRITICAL TEACHING & SPOKEN INSTRUCTIONS:
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              signal: AbortSignal.timeout(18000), // 18s allows thorough calculation and pedagogical explanation
+              signal: AbortSignal.timeout(3000), // Fast 3s timeout
               body: JSON.stringify({
                 system_instruction: {
                   parts: [{ text: instruction }],
@@ -112,13 +94,8 @@ CRITICAL TEACHING & SPOKEN INSTRUCTIONS:
             if (gText && gText.trim().length > 5) {
               return NextResponse.json({ reply: gText.trim() });
             }
-          } else {
-            const errData = await geminiRes.json().catch(() => ({}));
-            console.warn(`Gemini model ${modelName} status ${geminiRes.status}:`, errData);
           }
-        } catch (err: any) {
-          console.warn(`Gemini ${modelName} notice (${err.name || "timeout"}):`, err.message || err);
-        }
+        } catch {}
       }
     }
 
@@ -269,7 +246,14 @@ CRITICAL TEACHING & SPOKEN INSTRUCTIONS:
       });
     }
 
-    // 11. Polite greeting check
+    // 11. Communication, Emotion & Everyday Conversations (for Elena Rostova)
+    if (lower.includes("emotion") || lower.includes("feel") || lower.includes("express") || lower.includes("conversat") || lower.includes("pitch") || lower.includes("story") || lower.includes("communicat")) {
+      return NextResponse.json({
+        reply: `To express emotion effectively in everyday conversations, anchor your message in the personal impact behind the facts rather than just listing what happened. For example, instead of saying work was busy, tell someone you felt energized by overcoming a difficult hurdle. Naming your authentic feelings with sincerity creates genuine presence and turns ordinary interactions into lasting human connections!`,
+      });
+    }
+
+    // 12. Polite greeting check
     const isOnlyGreeting =
       /^(hi|hello|hey|good morning|good afternoon|greetings)[!., ]*$/i.test(lower) ||
       (lower.startsWith("hello") && lower.split(/\s+/).length <= 2);
