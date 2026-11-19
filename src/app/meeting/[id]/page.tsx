@@ -50,6 +50,19 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const micActiveRef = useRef(micActive);
+  const isListeningRef = useRef(isListening);
+  const agentSpeakingRef = useRef(agentSpeaking);
+  const isEndingCallRef = useRef(isEndingCall);
+  const isSendingRef = useRef(isSending);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const accumulatedSpeechRef = useRef<string>("");
+
+  useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+  useEffect(() => { agentSpeakingRef.current = agentSpeaking; }, [agentSpeaking]);
+  useEffect(() => { isEndingCallRef.current = isEndingCall; }, [isEndingCall]);
+  useEffect(() => { isSendingRef.current = isSending; }, [isSending]);
 
   // Sync real user name from Google OAuth session or localStorage
   useEffect(() => {
@@ -82,6 +95,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   // Play spoken response via Web Speech Synthesis
   function speakWithSyntheticVoice(text: string) {
     if (!voiceAudioEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setAgentSpeaking(false);
+      agentSpeakingRef.current = false;
       return;
     }
 
@@ -91,14 +106,35 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       utterance.rate = 1.05;
       utterance.pitch = 1.0;
 
-      utterance.onstart = () => setAgentSpeaking(true);
-      utterance.onend = () => setAgentSpeaking(false);
-      utterance.onerror = () => setAgentSpeaking(false);
+      utterance.onstart = () => {
+        setAgentSpeaking(true);
+        agentSpeakingRef.current = true;
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      };
+
+      utterance.onend = () => {
+        setAgentSpeaking(false);
+        agentSpeakingRef.current = false;
+        accumulatedSpeechRef.current = "";
+        setUserSpeechInput("");
+        // Resume listening automatically as soon as agent finishes speaking!
+        if (micActiveRef.current && !isEndingCallRef.current && !isListeningRef.current) {
+          try {
+            recognitionRef.current?.start();
+          } catch {}
+        }
+      };
+
+      utterance.onerror = () => {
+        setAgentSpeaking(false);
+        agentSpeakingRef.current = false;
+      };
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn("Speech synthesis error:", e);
       setAgentSpeaking(false);
+      agentSpeakingRef.current = false;
     }
   }
 
@@ -204,80 +240,150 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     };
   }, []);
 
-  // Safe manual voice toggle (Push to Talk / Click to Speak)
-  function toggleVoiceListening() {
+  // Continuous Hands-Free Voice Recognition Engine
+  function startContinuousListening() {
     if (typeof window === "undefined") return;
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert("Your browser does not support Web Speech Recognition. You can type in the box to speak with the agent!");
+      console.warn("SpeechRecognition API not available in this browser environment.");
       return;
     }
 
-    if (isListening) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      }
-      setIsListening(false);
-      return;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {}
     }
 
     try {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = "en-US";
 
       recognition.onstart = () => {
         setIsListening(true);
+        isListeningRef.current = true;
       };
 
       recognition.onresult = (event: any) => {
-        let finalTranscript = "";
+        // Echo suppression: ignore microphone while the AI agent is speaking or responding
+        if (agentSpeakingRef.current || isSendingRef.current || !micActiveRef.current) {
+          return;
+        }
+
+        let interim = "";
+        let final = "";
+
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            final += event.results[i][0].transcript;
           } else {
-            setUserSpeechInput(event.results[i][0].transcript);
+            interim += event.results[i][0].transcript;
           }
         }
 
-        if (finalTranscript.trim().length > 1) {
-          setUserSpeechInput("");
-          setIsListening(false);
-          processSpokenInput(finalTranscript.trim());
+        const recognizedText = (final || interim).trim();
+        if (recognizedText) {
+          setUserSpeechInput(recognizedText);
+          accumulatedSpeechRef.current = recognizedText;
+
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+
+          // Voice Activity Detection: auto-send after 1.2s conversational pause
+          silenceTimerRef.current = setTimeout(() => {
+            const textToSend = accumulatedSpeechRef.current.trim();
+            if (
+              textToSend.length > 1 &&
+              !isSendingRef.current &&
+              !agentSpeakingRef.current &&
+              micActiveRef.current
+            ) {
+              accumulatedSpeechRef.current = "";
+              setUserSpeechInput("");
+              processSpokenInput(textToSend);
+            }
+          }, 1200);
         }
       };
 
       recognition.onerror = (e: any) => {
-        console.warn("Speech recognition error:", e.error);
-        setIsListening(false);
+        if (e.error !== "no-speech") {
+          console.warn("Speech recognition notice:", e.error);
+        }
       };
 
       recognition.onend = () => {
         setIsListening(false);
+        isListeningRef.current = false;
+        // Keep listening alive continuously as long as mic is unmuted and call is ongoing
+        if (micActiveRef.current && !isEndingCallRef.current) {
+          setTimeout(() => {
+            if (
+              micActiveRef.current &&
+              !isEndingCallRef.current &&
+              !isListeningRef.current &&
+              !agentSpeakingRef.current
+            ) {
+              try {
+                recognition.start();
+              } catch {}
+            }
+          }, 300);
+        }
       };
 
       recognition.start();
       recognitionRef.current = recognition;
     } catch (e) {
-      console.warn("Failed to start voice listening:", e);
+      console.warn("Failed starting continuous speech recognition:", e);
       setIsListening(false);
+      isListeningRef.current = false;
     }
   }
 
-  // Hardware Mic toggle (mutes/unmutes physical microphone track)
+  // Start continuous listening automatically on call entrance
+  useEffect(() => {
+    startContinuousListening();
+
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  // Hardware Mic toggle (mutes/unmutes physical microphone track & pauses/resumes listening)
   function toggleMic() {
     const next = !micActive;
     setMicActive(next);
+    micActiveRef.current = next;
+
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = next;
       });
+    }
+
+    if (!next) {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+      setIsListening(false);
+      isListeningRef.current = false;
+    } else {
+      startContinuousListening();
     }
   }
 
@@ -393,6 +499,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   function handleSendMessage(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!userSpeechInput.trim() || isSending) return;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    accumulatedSpeechRef.current = "";
     const txt = userSpeechInput;
     setUserSpeechInput("");
     processSpokenInput(txt);
@@ -401,12 +509,14 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   // End Call & trigger Inngest
   async function handleEndCall() {
     setIsEndingCall(true);
+    isEndingCallRef.current = true;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
     if (recognitionRef.current) {
       try {
-        recognitionRef.current.stop();
+        recognitionRef.current.abort();
       } catch {}
     }
 
@@ -595,24 +705,55 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       {/* Dedicated Speech & Message Input Bar */}
       <div className="bg-surface border border-line rounded-lg p-3 shadow-card">
         <form onSubmit={handleSendMessage} className="flex items-center gap-2.5">
-          {/* Click to Speak Mic Button */}
-          <button
-            type="button"
-            onClick={toggleVoiceListening}
-            className={`px-3.5 py-2 rounded-md text-xs font-semibold flex items-center gap-2 shrink-0 transition-all ${
-              isListening
-                ? "bg-danger text-white animate-pulse shadow"
-                : "bg-canvas border border-line text-ink hover:border-brand hover:text-brand"
+          {/* Always-Active Hands-Free Mic Status Pill */}
+          <div
+            className={`px-3 py-2 rounded-md text-xs font-mono flex items-center gap-2 shrink-0 border transition-all ${
+              !micActive
+                ? "bg-danger-bg text-danger border-danger/30"
+                : isSending
+                ? "bg-canvas border-line text-muted animate-pulse"
+                : agentSpeaking
+                ? "bg-brand-light border-brand/20 text-brand"
+                : isListening
+                ? "bg-success-bg text-success border-success/30"
+                : "bg-canvas border-line text-muted"
             }`}
-            title="Click to speak with microphone"
           >
-            <Mic className={`w-3.5 h-3.5 ${isListening ? "text-white" : "text-brand"}`} />
-            <span className="font-mono text-xs">{isListening ? "Listening... (Speaking)" : "Speak (Mic)"}</span>
-          </button>
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                !micActive
+                  ? "bg-danger"
+                  : isSending
+                  ? "bg-muted animate-pulse"
+                  : agentSpeaking
+                  ? "bg-brand animate-ping"
+                  : isListening
+                  ? "bg-success animate-ping"
+                  : "bg-muted"
+              }`}
+            />
+            <span className="font-semibold text-xs">
+              {!micActive
+                ? "Mic Muted"
+                : isSending
+                ? "Agent Thinking..."
+                : agentSpeaking
+                ? `${agent?.name || "Agent"} Speaking...`
+                : isListening
+                ? "Live Mic (Speak naturally...)"
+                : "Live Mic Ready"}
+            </span>
+          </div>
 
           <input
             type="text"
-            placeholder={isListening ? "Listening to your voice... (or type here)..." : "Type your message or click 'Speak'..."}
+            placeholder={
+              !micActive
+                ? "Microphone is muted. Click 'Unmute' below or type here..."
+                : isListening
+                ? "Live microphone listening continuously... Speak naturally or type here..."
+                : "Type your message or speak naturally..."
+            }
             value={userSpeechInput}
             onChange={(e) => setUserSpeechInput(e.target.value)}
             className="flex-1 px-3.5 py-2 border border-line rounded-md text-xs focus:outline-none focus:border-brand font-sans bg-canvas/30"
