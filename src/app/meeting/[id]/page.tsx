@@ -48,7 +48,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const [streamConnected, setStreamConnected] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>("auto");
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>("cloud-tts");
   const [voiceMode, setVoiceMode] = useState<"ptt" | "auto">("ptt");
   const [isPTTTalking, setIsPTTTalking] = useState(false);
 
@@ -206,7 +206,31 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     return anyNatural || browserVoices[0] || null;
   }
 
-  // Play spoken response via Neural Cloud Web Audio API or Browser Natural Speech
+  function getOrCreateAudioContext(): {
+    audioCtx: AudioContext;
+    audioDest: MediaStreamAudioDestinationNode;
+  } | null {
+    if (typeof window === "undefined") return null;
+    try {
+      if (!audioContextRef.current || audioContextRef.current.state === "closed") {
+        const AudioContextClass =
+          window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContextClass) return null;
+        const ctx = new AudioContextClass();
+        audioContextRef.current = ctx;
+        const dest = ctx.createMediaStreamDestination();
+        audioDestinationRef.current = dest;
+      }
+      return {
+        audioCtx: audioContextRef.current,
+        audioDest: audioDestinationRef.current!,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Play spoken response via Neural Cloud Voice (consistent across all turns)
   async function speakWithSyntheticVoice(text: string) {
     if (!voiceAudioEnabled || typeof window === "undefined") {
       setAgentSpeaking(false);
@@ -231,16 +255,19 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       window.speechSynthesis.cancel();
     }
 
-    // If a custom browser voice is explicitly chosen:
+    // If a custom desktop browser voice is explicitly chosen from the dropdown:
     if (selectedVoiceURI !== "auto" && selectedVoiceURI !== "cloud-tts") {
       const voice = resolveVoice();
       speakWithBrowserVoice(text, voice);
       return;
     }
 
-    // High-fidelity neural voice routed through Web Audio for mixed recording + speaker output
-    if (audioContextRef.current && audioDestinationRef.current) {
-      const audioCtx = audioContextRef.current;
+    const agentVoice = meetingRef.current?.agent?.voice || "alloy";
+
+    // 1. Primary path: Web Audio pipeline (mixes into recorder destination AND user speakers)
+    const audioNodes = getOrCreateAudioContext();
+    if (audioNodes) {
+      const { audioCtx, audioDest } = audioNodes;
       if (audioCtx.state === "suspended") {
         try {
           await audioCtx.resume();
@@ -252,7 +279,6 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         agentSpeakingRef.current = true;
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
-        const agentVoice = meetingRef.current?.agent?.voice || "alloy";
         const res = await fetch(
           `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(agentVoice)}`
         );
@@ -264,10 +290,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         const source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
 
-        // 1. Output to user's physical speakers
+        // Output to user's physical speakers:
         source.connect(audioCtx.destination);
-        // 2. Output to MediaRecorder's mixed destination node
-        source.connect(audioDestinationRef.current);
+        // Output to MediaRecorder's mixed destination node:
+        source.connect(audioDest);
 
         activeBufferSourceRef.current = source;
 
@@ -289,14 +315,48 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
         source.start(0);
         return;
-      } catch (e) {
-        console.warn("WebAudio neural TTS note, falling back to browser voice:", e);
+      } catch (webAudioErr) {
+        console.warn("WebAudio pipeline notice, using HTMLAudio neural stream:", webAudioErr);
       }
     }
 
-    // Fallback: browser speech synthesis
-    const voice = resolveVoice();
-    speakWithBrowserVoice(text, voice);
+    // 2. Fallback path: HTMLAudioElement playing the EXACT SAME neural voice (NEVER swaps to robotic desktop voice)
+    try {
+      setAgentSpeaking(true);
+      agentSpeakingRef.current = true;
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+
+      const audio = new Audio(
+        `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(agentVoice)}`
+      );
+      activeAudioRef.current = audio;
+
+      audio.onended = () => {
+        setAgentSpeaking(false);
+        agentSpeakingRef.current = false;
+        accumulatedSpeechRef.current = "";
+        setUserSpeechInput("");
+        if (
+          micActiveRef.current &&
+          !isEndingCallRef.current &&
+          !isListeningRef.current
+        ) {
+          try {
+            recognitionRef.current?.start();
+          } catch {}
+        }
+      };
+
+      audio.onerror = () => {
+        setAgentSpeaking(false);
+        agentSpeakingRef.current = false;
+      };
+
+      await audio.play();
+    } catch {
+      setAgentSpeaking(false);
+      agentSpeakingRef.current = false;
+    }
   }
 
   function speakWithBrowserVoice(
@@ -876,16 +936,12 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           }
 
           // 1. Initialize Web Audio Context for Dual-Channel Mixed Recording
-          const AudioContextClass =
-            window.AudioContext || (window as any).webkitAudioContext;
-          const audioCtx = new AudioContextClass();
-          audioContextRef.current = audioCtx;
-
-          const audioDest = audioCtx.createMediaStreamDestination();
-          audioDestinationRef.current = audioDest;
+          const audioNodes = getOrCreateAudioContext();
+          const audioCtx = audioNodes?.audioCtx;
+          const audioDest = audioNodes?.audioDest;
 
           // Connect user mic stream into the recorder destination (NOT into speakers to prevent feedback)
-          if (stream.getAudioTracks().length > 0) {
+          if (audioCtx && audioDest && stream.getAudioTracks().length > 0) {
             try {
               const micSource = audioCtx.createMediaStreamSource(stream);
               micSource.connect(audioDest);
@@ -896,7 +952,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
 
           // Resume audio context on interaction if suspended by browser autoplay policy
           const unlockAudio = () => {
-            if (audioCtx.state === "suspended") {
+            if (audioCtx && audioCtx.state === "suspended") {
               audioCtx.resume();
             }
             window.removeEventListener("click", unlockAudio);
@@ -926,7 +982,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           // 4. Combine Composite Video Track + Mixed Audio Track (User Mic + Agent Voice)
           const mixedStream = new MediaStream([
             ...canvasStream.getVideoTracks(),
-            ...audioDest.stream.getAudioTracks(),
+            ...(audioDest ? audioDest.stream.getAudioTracks() : stream.getAudioTracks()),
           ]);
 
           // 5. Initialize MediaRecorder on Mixed Stream for Dual Video + Audio Recording
@@ -1462,7 +1518,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               <span>{agent?.name || "AI Specialist"}</span>
               <span className="text-white/60">
                 •{" "}
-                {selectedVoiceURI === "cloud-tts"
+                {selectedVoiceURI === "cloud-tts" || selectedVoiceURI === "auto"
                   ? "Google Neural HD"
                   : resolveVoice()?.name.replace("Microsoft ", "").replace(" - English (United States)", "") ||
                     "Natural Neural"}

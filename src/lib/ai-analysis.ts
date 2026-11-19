@@ -230,7 +230,7 @@ Instructions:
 2. Whenever referencing a specific moment, quote or cite the exact timestamp in brackets like [01:23].
 3. Format your response cleanly with markdown if lists or bold emphasis are helpful.`;
 
-    const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"];
     for (const model of modelsToTry) {
       try {
         const res = await fetch(
@@ -238,6 +238,7 @@ Instructions:
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(9000),
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: {
