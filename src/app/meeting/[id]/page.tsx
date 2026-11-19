@@ -1624,7 +1624,30 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const agent = meeting.agent;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
+      {/* Full-Screen Ending Transition Loader */}
+      {isEndingCall && (
+        <div className="fixed inset-0 z-50 bg-canvas/92 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+          <div className="bg-surface border border-line rounded-xl shadow-card p-8 max-w-md w-full flex flex-col items-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-brand-light text-brand flex items-center justify-center animate-pulse">
+              <Sparkles className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-lg font-bold text-ink tracking-tight">
+                Your meeting details are on the way...
+              </h2>
+              <p className="text-xs text-muted font-mono flex items-center justify-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
+                <span>Finalizing HD recording &amp; AI intelligence suite</span>
+              </p>
+            </div>
+            <div className="w-full bg-canvas rounded-full h-1.5 overflow-hidden border border-line mt-2">
+              <div className="bg-brand h-full rounded-full animate-pulse w-3/4 transition-all duration-1000" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Session Bar */}
       <div className="bg-surface border border-line rounded-lg px-5 py-3 flex items-center justify-between shadow-subtle">
         <div className="flex items-center gap-3">
@@ -1694,10 +1717,9 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               <span>{agent?.name || "AI Specialist"}</span>
               <span className="text-white/60">
                 •{" "}
-                {selectedVoiceURI === "cloud-tts" || selectedVoiceURI === "auto"
-                  ? "Google Neural HD"
-                  : resolveVoice()?.name.replace("Microsoft ", "").replace(" - English (United States)", "") ||
-                    "Natural Neural"}
+                {agent?.voice
+                  ? `${agent.voice.charAt(0).toUpperCase() + agent.voice.slice(1)} Voice`
+                  : "Neural Voice"}
               </span>
             </span>
             {agentSpeaking && (

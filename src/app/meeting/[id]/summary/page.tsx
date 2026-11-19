@@ -22,6 +22,7 @@ import {
   Copy,
   Check,
   FileDown,
+  Loader2,
 } from "lucide-react";
 import { ActionItem, Meeting, MeetingChatMessage, MeetingTopic, TranscriptUtterance } from "@/types";
 
@@ -297,8 +298,17 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
 
   if (loading) {
     return (
-      <div className="p-12 text-center text-xs font-mono text-muted">
-        Loading Post-Meeting Intelligence Suite...
+      <div className="min-h-[75vh] flex flex-col items-center justify-center p-8 text-center space-y-4">
+        <div className="w-16 h-16 rounded-full bg-brand-light text-brand flex items-center justify-center animate-pulse">
+          <Sparkles className="w-8 h-8" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-lg font-bold text-ink tracking-tight">Your meeting details are on the way...</h2>
+          <p className="text-xs text-muted font-mono flex items-center justify-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
+            <span>Assembling video replay and post-meeting intelligence</span>
+          </p>
+        </div>
       </div>
     );
   }
