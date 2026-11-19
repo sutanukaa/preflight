@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const text = searchParams.get("text")?.trim();
+    const voice = searchParams.get("voice")?.toLowerCase();
 
     if (!text) {
       return NextResponse.json({ error: "No text provided" }, { status: 400 });
@@ -17,8 +18,17 @@ export async function GET(req: NextRequest) {
       .replace(/[*#_`~[\]()]/g, "") // strip markdown
       .slice(0, 300);
 
+    let lang = "en-us";
+    if (voice === "echo") {
+      lang = "en-gb";
+    } else if (voice === "shimmer") {
+      lang = "en-us";
+    } else if (voice === "alloy") {
+      lang = "en";
+    }
+
     const encoded = encodeURIComponent(sanitized);
-    const googleTTSUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encoded}`;
+    const googleTTSUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encoded}`;
 
     const res = await fetch(googleTTSUrl, {
       headers: {

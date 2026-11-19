@@ -69,6 +69,19 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const abortControllerRef = useRef<AbortController | null>(null);
   const voiceModeRef = useRef(voiceMode);
   const isPTTTalkingRef = useRef(isPTTTalking);
+  const videoActiveRef = useRef(videoActive);
+  const isScreenSharingRef = useRef(isScreenSharing);
+  const meetingRef = useRef(meeting);
+  const userNameRef = useRef(userName);
+  const timeFormattedRef = useRef<string>("00:00");
+
+  // Web Audio pipeline for studio-grade mixed dual-channel recording
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const activeBufferSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const recordingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameIdRef = useRef<number | null>(null);
+  const agentAvatarImgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
@@ -77,6 +90,20 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   useEffect(() => { isSendingRef.current = isSending; }, [isSending]);
   useEffect(() => { voiceModeRef.current = voiceMode; }, [voiceMode]);
   useEffect(() => { isPTTTalkingRef.current = isPTTTalking; }, [isPTTTalking]);
+  useEffect(() => { videoActiveRef.current = videoActive; }, [videoActive]);
+  useEffect(() => { isScreenSharingRef.current = isScreenSharing; }, [isScreenSharing]);
+  useEffect(() => { meetingRef.current = meeting; }, [meeting]);
+  useEffect(() => { userNameRef.current = userName; }, [userName]);
+
+  // Preload agent avatar for offscreen canvas compositor
+  useEffect(() => {
+    if (meeting?.agent?.avatar) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = meeting.agent.avatar;
+      agentAvatarImgRef.current = img;
+    }
+  }, [meeting?.agent?.avatar]);
 
   // Load and cache available browser SpeechSynthesis voices
   useEffect(() => {
@@ -179,15 +206,21 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     return anyNatural || browserVoices[0] || null;
   }
 
-  // Play spoken response via Neural Cloud API or Browser Natural Speech
-  function speakWithSyntheticVoice(text: string) {
+  // Play spoken response via Neural Cloud Web Audio API or Browser Natural Speech
+  async function speakWithSyntheticVoice(text: string) {
     if (!voiceAudioEnabled || typeof window === "undefined") {
       setAgentSpeaking(false);
       agentSpeakingRef.current = false;
       return;
     }
 
-    // Cancel ongoing audio element or browser utterance
+    // Cancel ongoing buffer source, audio element, or browser utterance
+    if (activeBufferSourceRef.current) {
+      try {
+        activeBufferSourceRef.current.stop();
+        activeBufferSourceRef.current = null;
+      } catch {}
+    }
     if (activeAudioRef.current) {
       try {
         activeAudioRef.current.pause();
@@ -198,29 +231,47 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       window.speechSynthesis.cancel();
     }
 
-    const voice = resolveVoice();
-    const isNatural =
-      voice &&
-      (voice.name.includes("Natural") ||
-        voice.name.includes("Neural") ||
-        voice.name.includes("Google"));
+    // If a custom browser voice is explicitly chosen:
+    if (selectedVoiceURI !== "auto" && selectedVoiceURI !== "cloud-tts") {
+      const voice = resolveVoice();
+      speakWithBrowserVoice(text, voice);
+      return;
+    }
 
-    // If Cloud TTS is selected OR if browser only has robotic legacy desktop voices (no Natural/Google):
-    if (
-      selectedVoiceURI === "cloud-tts" ||
-      (!isNatural && selectedVoiceURI === "auto")
-    ) {
+    // High-fidelity neural voice routed through Web Audio for mixed recording + speaker output
+    if (audioContextRef.current && audioDestinationRef.current) {
+      const audioCtx = audioContextRef.current;
+      if (audioCtx.state === "suspended") {
+        try {
+          await audioCtx.resume();
+        } catch {}
+      }
+
       try {
-        const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}`);
-        activeAudioRef.current = audio;
+        setAgentSpeaking(true);
+        agentSpeakingRef.current = true;
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
-        audio.onplay = () => {
-          setAgentSpeaking(true);
-          agentSpeakingRef.current = true;
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        };
+        const agentVoice = meetingRef.current?.agent?.voice || "alloy";
+        const res = await fetch(
+          `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(agentVoice)}`
+        );
+        if (!res.ok) throw new Error(`TTS status ${res.status}`);
 
-        audio.onended = () => {
+        const arrayBuffer = await res.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+
+        // 1. Output to user's physical speakers
+        source.connect(audioCtx.destination);
+        // 2. Output to MediaRecorder's mixed destination node
+        source.connect(audioDestinationRef.current);
+
+        activeBufferSourceRef.current = source;
+
+        source.onended = () => {
           setAgentSpeaking(false);
           agentSpeakingRef.current = false;
           accumulatedSpeechRef.current = "";
@@ -236,20 +287,15 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           }
         };
 
-        audio.onerror = () => {
-          speakWithBrowserVoice(text, voice);
-        };
-
-        audio.play().catch(() => {
-          speakWithBrowserVoice(text, voice);
-        });
+        source.start(0);
         return;
-      } catch {
-        speakWithBrowserVoice(text, voice);
-        return;
+      } catch (e) {
+        console.warn("WebAudio neural TTS note, falling back to browser voice:", e);
       }
     }
 
+    // Fallback: browser speech synthesis
+    const voice = resolveVoice();
     speakWithBrowserVoice(text, voice);
   }
 
@@ -369,6 +415,12 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       try { abortControllerRef.current.abort(); } catch {}
       abortControllerRef.current = null;
     }
+    if (activeBufferSourceRef.current) {
+      try {
+        activeBufferSourceRef.current.stop();
+        activeBufferSourceRef.current = null;
+      } catch {}
+    }
     if (activeAudioRef.current) {
       try {
         activeAudioRef.current.pause();
@@ -461,7 +513,336 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     };
   }, []);
 
-  // Request user camera/mic for local preview and recording
+  // Canvas drawing helpers for 1280x720 split-screen composite recording
+  function drawRoundedRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number
+  ) {
+    if (typeof (ctx as any).roundRect === "function") {
+      (ctx as any).roundRect(x, y, w, h, r);
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function drawCover(
+    ctx: CanvasRenderingContext2D,
+    video: HTMLVideoElement,
+    dx: number,
+    dy: number,
+    dWidth: number,
+    dHeight: number,
+    mirror: boolean
+  ) {
+    const vW = video.videoWidth;
+    const vH = video.videoHeight;
+    if (!vW || !vH) return;
+
+    const vRatio = vW / vH;
+    const dRatio = dWidth / dHeight;
+    let sW = vW;
+    let sH = vH;
+    let sx = 0;
+    let sy = 0;
+
+    if (vRatio > dRatio) {
+      sW = vH * dRatio;
+      sx = (vW - sW) / 2;
+    } else {
+      sH = vW / dRatio;
+      sy = (vH - sH) / 2;
+    }
+
+    ctx.save();
+    if (mirror) {
+      ctx.translate(dx + dWidth, dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, sx, sy, sW, sH, 0, 0, dWidth, dHeight);
+    } else {
+      ctx.drawImage(video, sx, sy, sW, sH, dx, dy, dWidth, dHeight);
+    }
+    ctx.restore();
+  }
+
+  function drawCompositeFrame(ctx: CanvasRenderingContext2D, timestamp: number) {
+    // 1. Canvas Background & Ambient Glow
+    ctx.fillStyle = "#11161B";
+    ctx.fillRect(0, 0, 1280, 720);
+
+    const bgGrad = ctx.createRadialGradient(640, 360, 50, 640, 360, 700);
+    bgGrad.addColorStop(0, "#19222A");
+    bgGrad.addColorStop(1, "#0E1317");
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, 1280, 720);
+
+    // 2. Top Header Bar
+    ctx.fillStyle = "#11161B";
+    ctx.fillRect(0, 0, 1280, 60);
+
+    ctx.strokeStyle = "#242F37";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, 60);
+    ctx.lineTo(1280, 60);
+    ctx.stroke();
+
+    // Pulsing recording indicator
+    const pulse = 0.5 + 0.5 * Math.abs(Math.sin(timestamp * 0.004));
+    ctx.beginPath();
+    ctx.arc(36, 30, 5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(239, 68, 68, ${0.4 + 0.6 * pulse})`;
+    ctx.fill();
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 13px ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("LIVE INTERACTIVE SESSION", 52, 35);
+
+    const specialistName = meetingRef.current?.agent?.name || "AI Specialist";
+    const meetingTitle = meetingRef.current?.title || "Specialist Video Interaction";
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "13px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`Specialist: ${specialistName} • ${meetingTitle}`, 640, 35);
+
+    ctx.fillStyle = "#2DD4BF";
+    ctx.font = "bold 13px ui-monospace, monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(`${timeFormattedRef.current} | CLARITY AI HD RECORDER`, 1245, 35);
+    ctx.textAlign = "left";
+
+    // 3. Left Stage (Agent Stage)
+    ctx.save();
+    drawRoundedRect(ctx, 24, 74, 604, 572, 16);
+    ctx.fillStyle = "#151B20";
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = agentSpeakingRef.current ? "#294F4D" : "#242F37";
+    ctx.stroke();
+    ctx.clip();
+
+    if (agentSpeakingRef.current) {
+      const glow = ctx.createRadialGradient(326, 300, 20, 326, 300, 260);
+      glow.addColorStop(0, "rgba(41, 79, 77, 0.45)");
+      glow.addColorStop(1, "rgba(21, 27, 32, 0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(24, 74, 604, 572);
+    }
+
+    // Agent Stage Badges
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    drawRoundedRect(ctx, 40, 90, 230, 28, 6);
+    ctx.fill();
+    ctx.fillStyle = "#2DD4BF";
+    ctx.font = "bold 11px ui-monospace, monospace";
+    ctx.fillText("✦ " + specialistName, 52, 108);
+
+    if (agentSpeakingRef.current) {
+      ctx.fillStyle = "#294F4D";
+      drawRoundedRect(ctx, 514, 90, 98, 28, 6);
+      ctx.fill();
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 11px ui-monospace, monospace";
+      ctx.fillText("Speaking...", 528, 108);
+    } else {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      drawRoundedRect(ctx, 526, 90, 86, 28, 6);
+      ctx.fill();
+      ctx.fillStyle = "#94A3B8";
+      ctx.font = "11px ui-monospace, monospace";
+      ctx.fillText("Listening", 538, 108);
+    }
+
+    // Avatar
+    const cx = 326;
+    const cy = 290;
+    const r = 68;
+
+    if (agentSpeakingRef.current) {
+      const pulseR = r + 8 + 6 * Math.sin(timestamp * 0.008);
+      ctx.beginPath();
+      ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(41, 79, 77, 0.7)";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    const img = agentAvatarImgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+    } else {
+      ctx.fillStyle = "#24323D";
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      ctx.fillStyle = "#F59E0B";
+      ctx.fillRect(cx - 32, cy - 24, 64, 48);
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(cx - 20, cy - 10, 12, 12);
+      ctx.fillRect(cx + 8, cy - 10, 12, 12);
+      ctx.fillStyle = "#2DD4BF";
+      ctx.fillRect(cx - 16, cy + 12, 32, 4);
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = agentSpeakingRef.current ? "#3E7B77" : "#334155";
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 20px system-ui, -apple-system, sans-serif";
+    ctx.fillText(specialistName, cx, 396);
+
+    const agentRole = meetingRef.current?.agent?.role || "Specialist Advisor";
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "13px ui-monospace, monospace";
+    ctx.fillText(agentRole, cx, 418);
+
+    // Audio Waveform
+    const barCount = 24;
+    const barWidth = 4;
+    const barGap = 5;
+    const totalWaveW = barCount * barWidth + (barCount - 1) * barGap;
+    const waveStartX = cx - totalWaveW / 2;
+    const waveBaseY = 472;
+
+    for (let i = 0; i < barCount; i++) {
+      let barH = 4;
+      if (agentSpeakingRef.current) {
+        const wave = Math.abs(Math.sin(timestamp * 0.007 + i * 0.45));
+        barH = 6 + wave * 32;
+      }
+      const bx = waveStartX + i * (barWidth + barGap);
+      const by = waveBaseY - barH / 2;
+      ctx.fillStyle = agentSpeakingRef.current ? "#2DD4BF" : "#334155";
+      drawRoundedRect(ctx, bx, by, barWidth, barH, 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#64748B";
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.fillText("Google Gemini Flash Powered • Ultra Low-Latency Neural Voice", cx, 620);
+    ctx.textAlign = "left";
+
+    ctx.restore(); // end Left Stage
+
+    // 4. Right Stage (User Webcam Stage)
+    ctx.save();
+    drawRoundedRect(ctx, 652, 74, 604, 572, 16);
+    ctx.fillStyle = "#151B20";
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#242F37";
+    ctx.stroke();
+    ctx.clip();
+
+    const videoEl = localVideoRef.current;
+    const hasVideo =
+      videoActiveRef.current &&
+      videoEl &&
+      videoEl.readyState >= 2 &&
+      !videoEl.paused &&
+      videoEl.videoWidth > 0;
+
+    if (hasVideo) {
+      drawCover(
+        ctx,
+        videoEl,
+        652,
+        74,
+        604,
+        572,
+        !isScreenSharingRef.current
+      );
+    } else {
+      ctx.fillStyle = "#11161B";
+      ctx.fillRect(652, 74, 604, 572);
+
+      const uX = 652 + 302;
+      const uY = 74 + 250;
+      ctx.beginPath();
+      ctx.arc(uX, uY, 44, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#94A3B8";
+      ctx.font = "13px ui-monospace, monospace";
+      ctx.fillText("Camera Disabled", uX, uY + 65);
+      ctx.textAlign = "left";
+    }
+
+    // Top overlay badges
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    drawRoundedRect(ctx, 668, 90, 220, 28, 6);
+    ctx.fill();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "11px ui-monospace, monospace";
+    const userLabel = isScreenSharingRef.current
+      ? "Your Screen Share"
+      : `${userNameRef.current} (You)`;
+    ctx.fillText(userLabel, 680, 108);
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    drawRoundedRect(ctx, 1106, 90, 134, 28, 6);
+    ctx.fill();
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText("WebRTC Egress • 1080p", 1114, 108);
+
+    // Bottom status badge
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    drawRoundedRect(ctx, 668, 602, 170, 26, 6);
+    ctx.fill();
+    ctx.fillStyle = micActiveRef.current ? "#2DD4BF" : "#EF4444";
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText(micActiveRef.current ? "● Camera / Audio Ready" : "● Microphone Muted", 678, 619);
+
+    ctx.restore(); // end Right Stage
+
+    // 5. Bottom Footer
+    ctx.fillStyle = "#11161B";
+    ctx.fillRect(0, 655, 1280, 65);
+    ctx.strokeStyle = "#242F37";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, 655);
+    ctx.lineTo(1280, 655);
+    ctx.stroke();
+
+    ctx.fillStyle = "#64748B";
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("Stream Video SFU Active • Composite Multi-Track Recorded", 28, 692);
+    ctx.textAlign = "right";
+    ctx.fillText("Clarity AI Video Interaction & Post-Meeting Suite", 1252, 692);
+    ctx.textAlign = "left";
+  }
+
+  // Request user camera/mic for local preview and composite multi-track recording
   useEffect(() => {
     async function startCamera() {
       try {
@@ -493,7 +874,61 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             localVideoRef.current.srcObject = stream;
           }
 
-          // Initialize MediaRecorder for local call recording
+          // 1. Initialize Web Audio Context for Dual-Channel Mixed Recording
+          const AudioContextClass =
+            window.AudioContext || (window as any).webkitAudioContext;
+          const audioCtx = new AudioContextClass();
+          audioContextRef.current = audioCtx;
+
+          const audioDest = audioCtx.createMediaStreamDestination();
+          audioDestinationRef.current = audioDest;
+
+          // Connect user mic stream into the recorder destination (NOT into speakers to prevent feedback)
+          if (stream.getAudioTracks().length > 0) {
+            try {
+              const micSource = audioCtx.createMediaStreamSource(stream);
+              micSource.connect(audioDest);
+            } catch (micErr) {
+              console.warn("Could not connect mic to audio destination:", micErr);
+            }
+          }
+
+          // Resume audio context on interaction if suspended by browser autoplay policy
+          const unlockAudio = () => {
+            if (audioCtx.state === "suspended") {
+              audioCtx.resume();
+            }
+            window.removeEventListener("click", unlockAudio);
+            window.removeEventListener("keydown", unlockAudio);
+          };
+          window.addEventListener("click", unlockAudio);
+          window.addEventListener("keydown", unlockAudio);
+
+          // 2. Initialize Offscreen 1280x720 Canvas for Composite Split-Screen Meeting Video
+          const canvas = document.createElement("canvas");
+          canvas.width = 1280;
+          canvas.height = 720;
+          recordingCanvasRef.current = canvas;
+          const ctx = canvas.getContext("2d", { alpha: false });
+
+          function renderLoop(now: number) {
+            if (ctx) {
+              drawCompositeFrame(ctx, now);
+            }
+            animFrameIdRef.current = requestAnimationFrame(renderLoop);
+          }
+          animFrameIdRef.current = requestAnimationFrame(renderLoop);
+
+          // 3. Capture 30 FPS Video Stream from Canvas
+          const canvasStream = canvas.captureStream(30);
+
+          // 4. Combine Composite Video Track + Mixed Audio Track (User Mic + Agent Voice)
+          const mixedStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...audioDest.stream.getAudioTracks(),
+          ]);
+
+          // 5. Initialize MediaRecorder on Mixed Stream for Dual Video + Audio Recording
           if (typeof window !== "undefined" && typeof MediaRecorder !== "undefined") {
             try {
               let mimeType = "video/webm;codecs=vp9,opus";
@@ -504,7 +939,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
                 mimeType = "video/webm";
               }
 
-              const recorder = new MediaRecorder(stream, { mimeType });
+              const recorder = new MediaRecorder(mixedStream, { mimeType });
               recordedChunksRef.current = [];
 
               recorder.ondataavailable = (event) => {
@@ -513,7 +948,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
                 }
               };
 
-              recorder.start(); // Continuous streaming container for clean timestamps
+              recorder.start(1000); // 1-second chunks for resilient recording buffers
               mediaRecorderRef.current = recorder;
             } catch (recErr) {
               console.warn("MediaRecorder start note:", recErr);
@@ -527,6 +962,10 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     startCamera();
 
     return () => {
+      if (animFrameIdRef.current) {
+        cancelAnimationFrame(animFrameIdRef.current);
+        animFrameIdRef.current = null;
+      }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         try {
           mediaRecorderRef.current.stop();
@@ -534,6 +973,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (audioContextRef.current) {
+        try {
+          audioContextRef.current.close();
+        } catch {}
       }
     };
   }, []);
@@ -750,6 +1194,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const mins = Math.floor(callDuration / 60);
   const secs = callDuration % 60;
   const timeFormatted = `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  timeFormattedRef.current = timeFormatted;
 
   // Process User Speech & Generate In-Character Agent Response
   async function processSpokenInput(spokenText: string) {
@@ -833,7 +1278,17 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   async function handleEndCall() {
     setIsEndingCall(true);
     isEndingCallRef.current = true;
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (activeBufferSourceRef.current) {
+      try {
+        activeBufferSourceRef.current.stop();
+        activeBufferSourceRef.current = null;
+      } catch {}
+    }
     if (activeAudioRef.current) {
       try {
         activeAudioRef.current.pause();
