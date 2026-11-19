@@ -776,7 +776,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     abortControllerRef.current = abortController;
     const timeoutId = setTimeout(() => {
       try { abortController.abort(); } catch {}
-    }, 6000);
+    }, 20000); // 20s allows Gemini to calculate and return thorough explanations without getting interrupted
 
     try {
       const res = await fetch(`/api/meetings/${id}/agent-response`, {
