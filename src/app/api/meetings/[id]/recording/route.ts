@@ -37,7 +37,16 @@ export async function POST(
     // Automatically remux WebM with ffmpeg to write proper EBML cues and duration headers for instant browser playback
     const tempFixedPath = path.join(publicDir, `${id}_fixed.webm`);
     try {
-      await execFileAsync("ffmpeg", ["-i", filePath, "-c", "copy", tempFixedPath, "-y"]);
+      await execFileAsync("ffmpeg", [
+        "-err_detect",
+        "ignore_err",
+        "-i",
+        filePath,
+        "-c",
+        "copy",
+        tempFixedPath,
+        "-y",
+      ]);
       if (fs.existsSync(tempFixedPath) && fs.statSync(tempFixedPath).size > 1000) {
         fs.unlinkSync(filePath);
         fs.renameSync(tempFixedPath, filePath);

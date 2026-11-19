@@ -416,6 +416,20 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
                       setDuration(d);
                     } else if (meeting?.durationSeconds && meeting.durationSeconds > 0) {
                       setDuration(meeting.durationSeconds);
+                    } else {
+                      // Chromium WebM duration resolution fallback
+                      videoRef.current.currentTime = Number.MAX_SAFE_INTEGER;
+                      videoRef.current.ontimeupdate = () => {
+                        if (!videoRef.current) return;
+                        videoRef.current.ontimeupdate = handleTimeUpdate;
+                        const realD = videoRef.current.currentTime;
+                        videoRef.current.currentTime = 0;
+                        if (isFinite(realD) && realD > 0) {
+                          setDuration(realD);
+                        } else {
+                          setDuration(meeting?.durationSeconds || 60);
+                        }
+                      };
                     }
                   }
                 }}

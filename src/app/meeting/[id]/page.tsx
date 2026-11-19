@@ -82,6 +82,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   const recordingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
   const agentAvatarImgRef = useRef<HTMLImageElement | null>(null);
+  const recordingVideoElRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
@@ -95,13 +96,42 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   useEffect(() => { meetingRef.current = meeting; }, [meeting]);
   useEffect(() => { userNameRef.current = userName; }, [userName]);
 
-  // Preload agent avatar for offscreen canvas compositor
+  // Preload agent avatar with explicit SVG dimensions for canvas compositor
   useEffect(() => {
-    if (meeting?.agent?.avatar) {
+    const avatarUrl = meeting?.agent?.avatar;
+    if (!avatarUrl || typeof window === "undefined") return;
+
+    if (avatarUrl.includes("dicebear.com") || avatarUrl.endsWith(".svg")) {
+      fetch(avatarUrl)
+        .then((r) => r.text())
+        .then((svgText) => {
+          let fixed = svgText;
+          if (!fixed.includes("width=")) {
+            fixed = fixed.replace("<svg ", '<svg width="200" height="200" ');
+          }
+          const blob = new Blob([fixed], { type: "image/svg+xml" });
+          const blobUrl = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => {
+            agentAvatarImgRef.current = img;
+          };
+          img.src = blobUrl;
+        })
+        .catch(() => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            agentAvatarImgRef.current = img;
+          };
+          img.src = avatarUrl;
+        });
+    } else {
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.src = meeting.agent.avatar;
-      agentAvatarImgRef.current = img;
+      img.onload = () => {
+        agentAvatarImgRef.current = img;
+      };
+      img.src = avatarUrl;
     }
   }, [meeting?.agent?.avatar]);
 
@@ -582,11 +612,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     h: number,
     r: number
   ) {
+    ctx.beginPath();
     if (typeof (ctx as any).roundRect === "function") {
       (ctx as any).roundRect(x, y, w, h, r);
       return;
     }
-    ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.lineTo(x + w - r, y);
     ctx.quadraticCurveTo(x + w, y, x + w, y + r);
@@ -639,267 +669,284 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
   }
 
   function drawCompositeFrame(ctx: CanvasRenderingContext2D, timestamp: number) {
-    // 1. Canvas Background & Ambient Glow
-    ctx.fillStyle = "#11161B";
+    // 1. Full Zoom Stage Backdrop
+    ctx.fillStyle = "#0F1216";
     ctx.fillRect(0, 0, 1280, 720);
 
-    const bgGrad = ctx.createRadialGradient(640, 360, 50, 640, 360, 700);
-    bgGrad.addColorStop(0, "#19222A");
-    bgGrad.addColorStop(1, "#0E1317");
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, 1280, 720);
+    const specialistName = meetingRef.current?.agent?.name || "Susan";
+    const agentRole = meetingRef.current?.agent?.role || "Specialist Advisor";
+    const userDisplayName = userNameRef.current || "You";
 
-    // 2. Top Header Bar
-    ctx.fillStyle = "#11161B";
-    ctx.fillRect(0, 0, 1280, 60);
-
-    ctx.strokeStyle = "#242F37";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, 60);
-    ctx.lineTo(1280, 60);
-    ctx.stroke();
-
-    // Pulsing recording indicator
-    const pulse = 0.5 + 0.5 * Math.abs(Math.sin(timestamp * 0.004));
-    ctx.beginPath();
-    ctx.arc(36, 30, 5, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(239, 68, 68, ${0.4 + 0.6 * pulse})`;
-    ctx.fill();
-
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = "bold 13px ui-monospace, monospace";
-    ctx.textAlign = "left";
-    ctx.fillText("LIVE INTERACTIVE SESSION", 52, 35);
-
-    const specialistName = meetingRef.current?.agent?.name || "AI Specialist";
-    const meetingTitle = meetingRef.current?.title || "Specialist Video Interaction";
-    ctx.fillStyle = "#94A3B8";
-    ctx.font = "13px ui-monospace, monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(`Specialist: ${specialistName} • ${meetingTitle}`, 640, 35);
-
-    ctx.fillStyle = "#2DD4BF";
-    ctx.font = "bold 13px ui-monospace, monospace";
-    ctx.textAlign = "right";
-    ctx.fillText(`${timeFormattedRef.current} | CLARITY AI HD RECORDER`, 1245, 35);
-    ctx.textAlign = "left";
-
-    // 3. Left Stage (Agent Stage)
+    // 2. Left Box: AI Specialist (Zoom Gallery View)
+    const isSpeaking = agentSpeakingRef.current;
     ctx.save();
-    drawRoundedRect(ctx, 24, 74, 604, 572, 16);
-    ctx.fillStyle = "#151B20";
+    drawRoundedRect(ctx, 20, 20, 610, 680, 12);
+    ctx.fillStyle = "#1A1E24";
     ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = agentSpeakingRef.current ? "#294F4D" : "#242F37";
-    ctx.stroke();
-    ctx.clip();
 
-    if (agentSpeakingRef.current) {
-      const glow = ctx.createRadialGradient(326, 300, 20, 326, 300, 260);
-      glow.addColorStop(0, "rgba(41, 79, 77, 0.45)");
-      glow.addColorStop(1, "rgba(21, 27, 32, 0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(24, 74, 604, 572);
-    }
-
-    // Agent Stage Badges
-    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-    drawRoundedRect(ctx, 40, 90, 230, 28, 6);
-    ctx.fill();
-    ctx.fillStyle = "#2DD4BF";
-    ctx.font = "bold 11px ui-monospace, monospace";
-    ctx.fillText("✦ " + specialistName, 52, 108);
-
-    if (agentSpeakingRef.current) {
-      ctx.fillStyle = "#294F4D";
-      drawRoundedRect(ctx, 514, 90, 98, 28, 6);
-      ctx.fill();
-      ctx.fillStyle = "#FFFFFF";
-      ctx.font = "bold 11px ui-monospace, monospace";
-      ctx.fillText("Speaking...", 528, 108);
+    // Active speaker highlight border
+    if (isSpeaking) {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#10B981"; // Zoom green speaker border
     } else {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-      drawRoundedRect(ctx, 526, 90, 86, 28, 6);
-      ctx.fill();
-      ctx.fillStyle = "#94A3B8";
-      ctx.font = "11px ui-monospace, monospace";
-      ctx.fillText("Listening", 538, 108);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#2A313C";
+    }
+    ctx.stroke();
+    ctx.clip(); // Clip contents to left box
+
+    // Ambient glow when speaking
+    if (isSpeaking) {
+      const glow = ctx.createRadialGradient(325, 330, 40, 325, 330, 280);
+      glow.addColorStop(0, "rgba(16, 185, 129, 0.22)");
+      glow.addColorStop(1, "rgba(26, 30, 36, 0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(20, 20, 610, 680);
     }
 
-    // Avatar
-    const cx = 326;
-    const cy = 290;
-    const r = 68;
+    // Specialist Avatar
+    const sCx = 325;
+    const sCy = 320;
+    const sRadius = 90;
 
-    if (agentSpeakingRef.current) {
-      const pulseR = r + 8 + 6 * Math.sin(timestamp * 0.008);
+    // Glowing halo behind avatar when speaking
+    if (isSpeaking) {
+      const haloR = sRadius + 8 + 6 * Math.sin(timestamp * 0.008);
       ctx.beginPath();
-      ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(41, 79, 77, 0.7)";
+      ctx.arc(sCx, sCy, haloR, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.6)";
       ctx.lineWidth = 4;
       ctx.stroke();
     }
 
+    // Circular Avatar Image or High-Res Specialist Fallback
     ctx.save();
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.arc(sCx, sCy, sRadius, 0, Math.PI * 2);
     ctx.clip();
 
-    const img = agentAvatarImgRef.current;
-    if (img && img.complete && img.naturalWidth > 0) {
-      ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+    const domImg =
+      typeof document !== "undefined"
+        ? (document.getElementById("agent-avatar-img") as HTMLImageElement | null)
+        : null;
+    const preloadedImg = agentAvatarImgRef.current;
+    const avatarImg =
+      domImg && domImg.complete && domImg.naturalWidth > 0
+        ? domImg
+        : preloadedImg && preloadedImg.complete && preloadedImg.naturalWidth > 0
+        ? preloadedImg
+        : null;
+
+    if (avatarImg) {
+      try {
+        ctx.drawImage(avatarImg, sCx - sRadius, sCy - sRadius, sRadius * 2, sRadius * 2);
+      } catch {
+        // Fallback avatar background with initial
+        const avatarGrad = ctx.createLinearGradient(sCx - sRadius, sCy - sRadius, sCx + sRadius, sCy + sRadius);
+        avatarGrad.addColorStop(0, "#2563EB");
+        avatarGrad.addColorStop(1, "#1E40AF");
+        ctx.fillStyle = avatarGrad;
+        ctx.fillRect(sCx - sRadius, sCy - sRadius, sRadius * 2, sRadius * 2);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "bold 52px system-ui, -apple-system, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(specialistName.charAt(0).toUpperCase() || "S", sCx, sCy);
+      }
     } else {
-      ctx.fillStyle = "#24323D";
-      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-      ctx.fillStyle = "#F59E0B";
-      ctx.fillRect(cx - 32, cy - 24, 64, 48);
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(cx - 20, cy - 10, 12, 12);
-      ctx.fillRect(cx + 8, cy - 10, 12, 12);
-      ctx.fillStyle = "#2DD4BF";
-      ctx.fillRect(cx - 16, cy + 12, 32, 4);
+      // Zoom-style stylish initials badge
+      const avatarGrad = ctx.createLinearGradient(sCx - sRadius, sCy - sRadius, sCx + sRadius, sCy + sRadius);
+      avatarGrad.addColorStop(0, "#2563EB");
+      avatarGrad.addColorStop(1, "#1E40AF");
+      ctx.fillStyle = avatarGrad;
+      ctx.fillRect(sCx - sRadius, sCy - sRadius, sRadius * 2, sRadius * 2);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 52px system-ui, -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(specialistName.charAt(0).toUpperCase() || "S", sCx, sCy);
     }
     ctx.restore();
 
+    // Avatar border ring
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = agentSpeakingRef.current ? "#3E7B77" : "#334155";
-    ctx.lineWidth = 3.5;
+    ctx.arc(sCx, sCy, sRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = isSpeaking ? "#10B981" : "#3B4553";
+    ctx.lineWidth = 3;
     ctx.stroke();
 
+    // Specialist Name under avatar
     ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#FFFFFF";
-    ctx.font = "bold 20px system-ui, -apple-system, sans-serif";
-    ctx.fillText(specialistName, cx, 396);
+    ctx.font = "bold 22px system-ui, -apple-system, sans-serif";
+    ctx.fillText(specialistName, sCx, 445);
 
-    const agentRole = meetingRef.current?.agent?.role || "Specialist Advisor";
     ctx.fillStyle = "#94A3B8";
-    ctx.font = "13px ui-monospace, monospace";
-    ctx.fillText(agentRole, cx, 418);
+    ctx.font = "14px ui-monospace, monospace";
+    ctx.fillText(agentRole, sCx, 470);
 
-    // Audio Waveform
-    const barCount = 24;
-    const barWidth = 4;
-    const barGap = 5;
-    const totalWaveW = barCount * barWidth + (barCount - 1) * barGap;
-    const waveStartX = cx - totalWaveW / 2;
-    const waveBaseY = 472;
+    // Dynamic 22-bar Soundwave
+    const barCount = 22;
+    const barW = 5;
+    const barG = 5;
+    const totalWaveW = barCount * barW + (barCount - 1) * barG;
+    const waveX = sCx - totalWaveW / 2;
+    const waveY = 525;
 
     for (let i = 0; i < barCount; i++) {
-      let barH = 4;
-      if (agentSpeakingRef.current) {
-        const wave = Math.abs(Math.sin(timestamp * 0.007 + i * 0.45));
-        barH = 6 + wave * 32;
+      let bH = 4;
+      if (isSpeaking) {
+        const wave = Math.abs(Math.sin(timestamp * 0.007 + i * 0.42));
+        bH = 8 + wave * 32;
       }
-      const bx = waveStartX + i * (barWidth + barGap);
-      const by = waveBaseY - barH / 2;
-      ctx.fillStyle = agentSpeakingRef.current ? "#2DD4BF" : "#334155";
-      drawRoundedRect(ctx, bx, by, barWidth, barH, 2);
+      const bx = waveX + i * (barW + barG);
+      const by = waveY - bH / 2;
+      ctx.fillStyle = isSpeaking ? "#10B981" : "#374151";
+      drawRoundedRect(ctx, bx, by, barW, bH, 2.5);
       ctx.fill();
     }
 
-    ctx.fillStyle = "#64748B";
-    ctx.font = "11px ui-monospace, monospace";
-    ctx.fillText("Google Gemini Flash Powered • Ultra Low-Latency Neural Voice", cx, 620);
-    ctx.textAlign = "left";
+    // Zoom Bottom-Left Name Overlay
+    const sNameTag = `${specialistName} (${agentRole})`;
+    ctx.font = "bold 13px system-ui, -apple-system, sans-serif";
+    const sTagWidth = ctx.measureText(sNameTag).width + 36;
 
-    ctx.restore(); // end Left Stage
-
-    // 4. Right Stage (User Webcam Stage)
-    ctx.save();
-    drawRoundedRect(ctx, 652, 74, 604, 572, 16);
-    ctx.fillStyle = "#151B20";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+    drawRoundedRect(ctx, 34, 650, sTagWidth, 32, 6);
     ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = "#242F37";
-    ctx.stroke();
-    ctx.clip();
 
-    const videoEl = localVideoRef.current;
-    const hasVideo =
-      videoActiveRef.current &&
-      videoEl &&
-      videoEl.readyState >= 2 &&
-      !videoEl.paused &&
-      videoEl.videoWidth > 0;
+    // Small status dot
+    ctx.beginPath();
+    ctx.arc(48, 666, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = isSpeaking ? "#10B981" : "#94A3B8";
+    ctx.fill();
 
-    if (hasVideo) {
-      drawCover(
-        ctx,
-        videoEl,
-        652,
-        74,
-        604,
-        572,
-        !isScreenSharingRef.current
-      );
-    } else {
-      ctx.fillStyle = "#11161B";
-      ctx.fillRect(652, 74, 604, 572);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.textAlign = "left";
+    ctx.fillText(sNameTag, 60, 671);
 
-      const uX = 652 + 302;
-      const uY = 74 + 250;
-      ctx.beginPath();
-      ctx.arc(uX, uY, 44, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+    // Zoom Top-Right Speaking Pill
+    if (isSpeaking) {
+      ctx.fillStyle = "#10B981";
+      drawRoundedRect(ctx, 514, 34, 102, 26, 6);
       ctx.fill();
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-      ctx.lineWidth = 2;
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
+      ctx.fillText("🔊 Speaking", 526, 51);
+    }
+
+    ctx.restore(); // End Left Box
+
+    // 3. Right Box: User Live Webcam Feed (Zoom Gallery View)
+    const isUserTalking = isPTTTalkingRef.current;
+    ctx.save();
+    drawRoundedRect(ctx, 650, 20, 610, 680, 12);
+    ctx.fillStyle = "#1A1E24";
+    ctx.fill();
+
+    if (isUserTalking) {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#10B981"; // User speaking highlight
+    } else {
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#2A313C";
+    }
+    ctx.stroke();
+    ctx.clip(); // Clip to right box
+
+    const recVideo =
+      recordingVideoElRef.current &&
+      recordingVideoElRef.current.readyState >= 2 &&
+      recordingVideoElRef.current.videoWidth > 0
+        ? recordingVideoElRef.current
+        : localVideoRef.current &&
+          localVideoRef.current.readyState >= 2 &&
+          localVideoRef.current.videoWidth > 0
+        ? localVideoRef.current
+        : null;
+
+    const hasVideo = videoActiveRef.current && !!recVideo;
+
+    if (hasVideo && recVideo) {
+      // Real live camera feed, crisp cover crop, mirrored horizontally (just like Zoom!)
+      try {
+        drawCover(
+          ctx,
+          recVideo,
+          650,
+          20,
+          610,
+          680,
+          !isScreenSharingRef.current
+        );
+      } catch {
+        ctx.fillStyle = "#161A20";
+        ctx.fillRect(650, 20, 610, 680);
+      }
+    } else {
+      // Zoom-style user camera off state
+      ctx.fillStyle = "#161A20";
+      ctx.fillRect(650, 20, 610, 680);
+
+      const uCx = 955;
+      const uCy = 330;
+      const uRadius = 80;
+
+      const userGrad = ctx.createLinearGradient(uCx - uRadius, uCy - uRadius, uCx + uRadius, uCy + uRadius);
+      userGrad.addColorStop(0, "#475569");
+      userGrad.addColorStop(1, "#1E293B");
+      ctx.fillStyle = userGrad;
+      ctx.beginPath();
+      ctx.arc(uCx, uCy, uRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#64748B";
+      ctx.lineWidth = 2.5;
       ctx.stroke();
 
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 46px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const uInitial = userDisplayName.charAt(0).toUpperCase() || "U";
+      ctx.fillText(uInitial, uCx, uCy);
+
+      ctx.textBaseline = "alphabetic";
+      ctx.font = "14px ui-monospace, monospace";
       ctx.fillStyle = "#94A3B8";
-      ctx.font = "13px ui-monospace, monospace";
-      ctx.fillText("Camera Disabled", uX, uY + 65);
-      ctx.textAlign = "left";
+      ctx.fillText(videoActiveRef.current ? "Connecting Camera..." : "Camera Off", uCx, 445);
     }
 
-    // Top overlay badges
-    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-    drawRoundedRect(ctx, 668, 90, 220, 28, 6);
+    // Zoom Bottom-Left Name Tag for User
+    const uNameTag = `${userDisplayName} (You)`;
+    ctx.font = "bold 13px system-ui, -apple-system, sans-serif";
+    const uTagWidth = ctx.measureText(uNameTag).width + 36;
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+    drawRoundedRect(ctx, 664, 650, uTagWidth, 32, 6);
     ctx.fill();
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = "11px ui-monospace, monospace";
-    const userLabel = isScreenSharingRef.current
-      ? "Your Screen Share"
-      : `${userNameRef.current} (You)`;
-    ctx.fillText(userLabel, 680, 108);
 
-    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-    drawRoundedRect(ctx, 1106, 90, 134, 28, 6);
-    ctx.fill();
-    ctx.fillStyle = "#94A3B8";
-    ctx.font = "10px ui-monospace, monospace";
-    ctx.fillText("WebRTC Egress • 1080p", 1114, 108);
-
-    // Bottom status badge
-    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-    drawRoundedRect(ctx, 668, 602, 170, 26, 6);
-    ctx.fill();
-    ctx.fillStyle = micActiveRef.current ? "#2DD4BF" : "#EF4444";
-    ctx.font = "10px ui-monospace, monospace";
-    ctx.fillText(micActiveRef.current ? "● Camera / Audio Ready" : "● Microphone Muted", 678, 619);
-
-    ctx.restore(); // end Right Stage
-
-    // 5. Bottom Footer
-    ctx.fillStyle = "#11161B";
-    ctx.fillRect(0, 655, 1280, 65);
-    ctx.strokeStyle = "#242F37";
-    ctx.lineWidth = 1;
+    // Mic indicator dot
     ctx.beginPath();
-    ctx.moveTo(0, 655);
-    ctx.lineTo(1280, 655);
-    ctx.stroke();
+    ctx.arc(678, 666, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = micActiveRef.current ? "#10B981" : "#EF4444";
+    ctx.fill();
 
-    ctx.fillStyle = "#64748B";
-    ctx.font = "11px ui-monospace, monospace";
+    ctx.fillStyle = "#FFFFFF";
     ctx.textAlign = "left";
-    ctx.fillText("Stream Video SFU Active • Composite Multi-Track Recorded", 28, 692);
-    ctx.textAlign = "right";
-    ctx.fillText("Clarity AI Video Interaction & Post-Meeting Suite", 1252, 692);
-    ctx.textAlign = "left";
+    ctx.fillText(uNameTag, 690, 671);
+
+    // Zoom Top-Right User Speaking Pill (when PTT is active)
+    if (isUserTalking) {
+      ctx.fillStyle = "#10B981";
+      drawRoundedRect(ctx, 1144, 34, 102, 26, 6);
+      ctx.fill();
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
+      ctx.fillText("🎙️ Talking", 1158, 51);
+    }
+
+    ctx.restore(); // End Right Box
   }
 
   // Request user camera/mic for local preview and composite multi-track recording
@@ -935,6 +982,15 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
             localVideoRef.current.play().catch(() => {});
           }
 
+          // Dedicated video element to reliably feed frames to recording canvas compositor
+          const recVideo = document.createElement("video");
+          recVideo.muted = true;
+          recVideo.playsInline = true;
+          recVideo.autoplay = true;
+          recVideo.srcObject = stream;
+          recVideo.play().catch(() => {});
+          recordingVideoElRef.current = recVideo;
+
           // 1. Initialize Web Audio Context for Dual-Channel Mixed Recording
           const audioNodes = getOrCreateAudioContext();
           const audioCtx = audioNodes?.audioCtx;
@@ -961,11 +1017,14 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           window.addEventListener("click", unlockAudio);
           window.addEventListener("keydown", unlockAudio);
 
-          // 2. Initialize Offscreen 1280x720 Canvas for Composite Split-Screen Meeting Video
-          const canvas = document.createElement("canvas");
-          canvas.width = 1280;
-          canvas.height = 720;
-          recordingCanvasRef.current = canvas;
+          // 2. Initialize 1280x720 Canvas for Composite Zoom Split-Screen Meeting Video
+          let canvas = recordingCanvasRef.current;
+          if (!canvas) {
+            canvas = document.createElement("canvas");
+            canvas.width = 1280;
+            canvas.height = 720;
+            recordingCanvasRef.current = canvas;
+          }
           const ctx = canvas.getContext("2d", { alpha: false });
 
           function renderLoop(now: number) {
@@ -988,15 +1047,19 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           // 5. Initialize MediaRecorder on Mixed Stream for Dual Video + Audio Recording
           if (typeof window !== "undefined" && typeof MediaRecorder !== "undefined") {
             try {
-              let mimeType = "video/webm;codecs=vp9,opus";
+              // Prioritize VP8+Opus for maximum reliability and zero alpha/header corruption
+              let mimeType = "video/webm;codecs=vp8,opus";
               if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = "video/webm;codecs=vp8,opus";
+                mimeType = "video/webm;codecs=h264,opus";
               }
               if (!MediaRecorder.isTypeSupported(mimeType)) {
                 mimeType = "video/webm";
               }
 
-              const recorder = new MediaRecorder(mixedStream, { mimeType });
+              const recorder = new MediaRecorder(mixedStream, {
+                mimeType,
+                videoBitsPerSecond: 2500000,
+              });
               recordedChunksRef.current = [];
 
               recorder.ondataavailable = (event) => {
@@ -1005,7 +1068,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
                 }
               };
 
-              recorder.start(1000); // 1-second chunks for resilient recording buffers
+              recorder.start(1000);
               mediaRecorderRef.current = recorder;
             } catch (recErr) {
               console.warn("MediaRecorder start note:", recErr);
@@ -1226,8 +1289,14 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         screenStreamRef.current = screenStream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = screenStream;
+          localVideoRef.current.play().catch(() => {});
+        }
+        if (recordingVideoElRef.current) {
+          recordingVideoElRef.current.srcObject = screenStream;
+          recordingVideoElRef.current.play().catch(() => {});
         }
         setIsScreenSharing(true);
+        isScreenSharingRef.current = true;
 
         screenStream.getVideoTracks()[0].onended = () => {
           stopScreenShare();
@@ -1247,8 +1316,14 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
     if (localVideoRef.current && mediaStreamRef.current) {
       localVideoRef.current.srcObject = mediaStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
+    }
+    if (recordingVideoElRef.current && mediaStreamRef.current) {
+      recordingVideoElRef.current.srcObject = mediaStreamRef.current;
+      recordingVideoElRef.current.play().catch(() => {});
     }
     setIsScreenSharing(false);
+    isScreenSharingRef.current = false;
   }
 
   // Timer loop
@@ -1372,15 +1447,28 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
       } catch {}
     }
 
-    // Flush and stop MediaRecorder
+    // Stop canvas animation loop
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
+
+    // Flush and cleanly stop MediaRecorder before tearing down media tracks
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       try {
-        mediaRecorderRef.current.requestData();
-        await new Promise((resolve) => {
-          if (!mediaRecorderRef.current) return resolve(null);
-          mediaRecorderRef.current.onstop = () => resolve(null);
-          mediaRecorderRef.current.stop();
-          setTimeout(resolve, 300);
+        await new Promise<void>((resolve) => {
+          if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+            resolve();
+            return;
+          }
+          mediaRecorderRef.current.onstop = () => resolve();
+          try {
+            mediaRecorderRef.current.requestData();
+            mediaRecorderRef.current.stop();
+          } catch {
+            resolve();
+          }
+          setTimeout(resolve, 600);
         });
       } catch (recErr) {
         console.warn("Error stopping MediaRecorder:", recErr);
@@ -1392,6 +1480,11 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    if (recordingVideoElRef.current) {
+      try {
+        recordingVideoElRef.current.srcObject = null;
+      } catch {}
     }
 
     try {
@@ -1535,6 +1628,8 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           <div className="flex flex-col items-center justify-center my-auto z-10">
             <div className="relative">
               <img
+                id="agent-avatar-img"
+                crossOrigin="anonymous"
                 src={agent?.avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=SpecialistAI&backgroundColor=b6e3f4,c0aede,d1d4f9"}
                 alt={agent?.name || "AI Specialist"}
                 className={`w-32 h-32 rounded-full object-cover border-4 transition-all duration-300 ${
@@ -1870,6 +1965,25 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           ))}
         </div>
       </div>
+
+      {/* Offscreen recording canvas attached to DOM for hardware compositor rasterization */}
+      <canvas
+        ref={(el) => {
+          if (el) recordingCanvasRef.current = el;
+        }}
+        width={1280}
+        height={720}
+        style={{
+          position: "fixed",
+          top: "-9999px",
+          left: "-9999px",
+          width: "1280px",
+          height: "720px",
+          pointerEvents: "none",
+          opacity: 0,
+          zIndex: -100,
+        }}
+      />
     </div>
   );
 }
