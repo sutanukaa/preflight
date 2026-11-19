@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, memoryDb } from "@/lib/auth";
 import { headers } from "next/headers";
+import { dbPool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +11,23 @@ export async function GET(req: NextRequest) {
       headers: await headers(),
     });
 
-    if (session?.user) {
-      return NextResponse.json({ user: session.user });
-    }
+    const user = session?.user || (memoryDb.user.length > 0 ? memoryDb.user[memoryDb.user.length - 1] : null);
 
-    // Check if any user was saved in memoryDb from the Google OAuth callback
-    if (memoryDb.user.length > 0) {
-      const latestUser = memoryDb.user[memoryDb.user.length - 1];
-      return NextResponse.json({ user: latestUser });
+    if (user) {
+      if (dbPool) {
+        dbPool
+          .query(
+            `INSERT INTO users (id, name, email, avatar, plan)
+             VALUES ($1, $2, $3, $4, 'pro')
+             ON CONFLICT (id) DO UPDATE SET
+               name = EXCLUDED.name,
+               email = EXCLUDED.email,
+               avatar = EXCLUDED.avatar;`,
+            [user.id, user.name || "User", user.email || "user@clarity.ai", user.image || ""]
+          )
+          .catch((e) => console.warn("Neon user sync note:", e.message));
+      }
+      return NextResponse.json({ user });
     }
 
     return NextResponse.json({ user: null });

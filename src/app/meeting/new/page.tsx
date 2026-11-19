@@ -18,7 +18,6 @@ function NewMeetingContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             agentId,
-            title: `Interactive Video Session with Specialist`,
           }),
         });
         const data = await res.json();

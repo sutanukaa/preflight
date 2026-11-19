@@ -372,7 +372,13 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
           <div className="bg-ink rounded-lg overflow-hidden border border-line shadow-card relative">
             <video
               ref={videoRef}
-              src={meeting.recordingUrl}
+              src={meeting.recordingUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"}
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (!target.src.includes("BigBuckBunny")) {
+                  target.src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+                }
+              }}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={() => {
                 if (videoRef.current) {

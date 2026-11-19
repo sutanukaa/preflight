@@ -256,6 +256,28 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
   }
 
+  // Hardware Mic toggle (mutes/unmutes physical microphone track)
+  function toggleMic() {
+    const next = !micActive;
+    setMicActive(next);
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = next;
+      });
+    }
+  }
+
+  // Hardware Camera toggle (enables/disables physical camera video track)
+  function toggleVideo() {
+    const next = !videoActive;
+    setVideoActive(next);
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = next;
+      });
+    }
+  }
+
   // Handle Screen Share toggle
   async function toggleScreenShare() {
     if (!isScreenSharing) {
@@ -602,7 +624,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
         {/* Hardware Toggles */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setMicActive(!micActive)}
+            onClick={toggleMic}
             className={`px-3 py-2 rounded-md border text-xs font-medium flex items-center gap-2 transition-colors ${
               micActive
                 ? "bg-canvas border-line text-ink hover:bg-line/40"
@@ -614,7 +636,7 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           </button>
 
           <button
-            onClick={() => setVideoActive(!videoActive)}
+            onClick={toggleVideo}
             className={`px-3 py-2 rounded-md border text-xs font-medium flex items-center gap-2 transition-colors ${
               videoActive
                 ? "bg-canvas border-line text-ink hover:bg-line/40"
