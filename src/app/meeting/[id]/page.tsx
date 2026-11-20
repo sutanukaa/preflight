@@ -34,18 +34,18 @@ import { promptSignIn, isUserLoggedIn } from "@/components/SignInModal";
 export default function MeetingRoomPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: authSession } = useSession();
+  const { data: authSession, isPending } = useSession();
   const [needsAuth, setNeedsAuth] = useState(false);
 
   useEffect(() => {
+    if (isPending) return;
     const loggedIn = !!authSession?.user || isUserLoggedIn();
     if (!loggedIn) {
       setNeedsAuth(true);
-      promptSignIn(typeof window !== "undefined" ? window.location.href : "/");
     } else {
       setNeedsAuth(false);
     }
-  }, [authSession]);
+  }, [authSession, isPending]);
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [userName, setUserName] = useState("You");

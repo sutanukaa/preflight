@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import fs from "fs";
 import path from "path";
+import pg from "pg";
 
 const AUTH_CACHE_FILE = path.join(process.cwd(), ".auth-cache.json");
 
@@ -51,8 +52,23 @@ const resolvedBaseURL =
     ? `https://${process.env.VERCEL_URL}`
     : "http://localhost:3000");
 
+// Use persistent PostgreSQL pool when available for persistent sessions across serverless lambdas
+let databaseConfig: any = memoryAdapter(memoryDb);
+if (process.env.DATABASE_URL) {
+  try {
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+    });
+    databaseConfig = pool;
+  } catch (err) {
+    console.warn("Better Auth PostgreSQL pool fallback to memory:", err);
+  }
+}
+
 export const auth = betterAuth({
-  database: memoryAdapter(memoryDb),
+  database: databaseConfig,
   secret: process.env.BETTER_AUTH_SECRET || "dev_secret_key_needs_32_characters_for_better_auth_session",
   baseURL: resolvedBaseURL,
   socialProviders: {

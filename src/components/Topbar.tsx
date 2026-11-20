@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LogIn, Video, LogOut, Loader2 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
-import { promptSignIn } from "@/components/SignInModal";
+import { promptSignIn, isUserLoggedIn } from "@/components/SignInModal";
 
 interface UserInfo {
   id: string;
@@ -133,7 +133,8 @@ export function Topbar() {
         <Link
           href="/meeting/new"
           onClick={(e) => {
-            if (!user) {
+            const loggedIn = !!user || !!authSession?.user || isUserLoggedIn();
+            if (!loggedIn) {
               e.preventDefault();
               promptSignIn("/meeting/new");
             }

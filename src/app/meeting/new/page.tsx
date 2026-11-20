@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Video, Loader2, Lock, LogIn, ArrowLeft } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
-import { promptSignIn, isUserLoggedIn } from "@/components/SignInModal";
+import { promptSignIn, isUserLoggedIn, getUserFromClient } from "@/components/SignInModal";
 
 function NewMeetingContent() {
   const router = useRouter();
@@ -23,7 +23,6 @@ function NewMeetingContent() {
     const loggedIn = !!authSession?.user || isUserLoggedIn();
     if (!loggedIn) {
       setNeedsAuth(true);
-      promptSignIn(`/meeting/new?agentId=${agentId}`);
       return;
     }
 
@@ -31,12 +30,15 @@ function NewMeetingContent() {
     async function createAndRedirect() {
       try {
         setStatus("Initializing Stream Video Room & AI Specialist...");
+        const clientUser = getUserFromClient();
+        const userId = authSession?.user?.id || clientUser?.id || "user-session";
+
         const res = await fetch("/api/meetings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             agentId,
-            userId: authSession?.user?.id,
+            userId,
           }),
         });
         const data = await res.json();
@@ -44,7 +46,6 @@ function NewMeetingContent() {
           router.replace(`/meeting/${data.meeting.id}`);
         } else if (res.status === 401) {
           setNeedsAuth(true);
-          promptSignIn(`/meeting/new?agentId=${agentId}`);
         } else {
           setStatus("Error preparing meeting room.");
         }

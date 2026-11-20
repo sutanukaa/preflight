@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { LogIn, Video, Loader2, X, ShieldCheck, Sparkles, Lock } from "lucide-react";
+import { useSession } from "@/lib/auth-client";
 
 interface SignInModalProps {
   isOpen?: boolean;
@@ -18,6 +19,7 @@ export function SignInModal({
   description = "To create or join live AI specialist video rooms, record consultations, and receive post-meeting intelligence summaries, please sign in with your Google account.",
   redirectUrl,
 }: SignInModalProps) {
+  const { data: authSession } = useSession();
   const [internalOpen, setInternalOpen] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [targetRedirect, setTargetRedirect] = useState<string | undefined>(redirectUrl);
@@ -25,8 +27,19 @@ export function SignInModal({
   const isControlled = typeof propsIsOpen === "boolean";
   const isOpen = isControlled ? propsIsOpen : internalOpen;
 
+  // If user is already authenticated, immediately dismiss and prevent showing
+  useEffect(() => {
+    if (authSession?.user || isUserLoggedIn()) {
+      setInternalOpen(false);
+    }
+  }, [authSession]);
+
   useEffect(() => {
     function handleOpenEvent(e: Event) {
+      // NEVER open the modal if the user is already authenticated!
+      if (authSession?.user || isUserLoggedIn()) {
+        return;
+      }
       const customEvent = e as CustomEvent<{ redirectUrl?: string }>;
       if (customEvent.detail?.redirectUrl) {
         setTargetRedirect(customEvent.detail.redirectUrl);
@@ -38,7 +51,7 @@ export function SignInModal({
       window.addEventListener("open-signin-modal", handleOpenEvent);
       return () => window.removeEventListener("open-signin-modal", handleOpenEvent);
     }
-  }, []);
+  }, [authSession]);
 
   function handleClose() {
     if (propsOnClose) {
@@ -72,7 +85,8 @@ export function SignInModal({
     }
   }
 
-  if (!isOpen) return null;
+  // Never render if modal is closed OR user is already logged in
+  if (!isOpen || authSession?.user || isUserLoggedIn()) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -165,6 +179,8 @@ export function SignInModal({
  */
 export function promptSignIn(redirectUrl?: string) {
   if (typeof window !== "undefined") {
+    // If user is already logged in, do not dispatch
+    if (isUserLoggedIn()) return;
     window.dispatchEvent(
       new CustomEvent("open-signin-modal", { detail: { redirectUrl } })
     );
@@ -172,16 +188,40 @@ export function promptSignIn(redirectUrl?: string) {
 }
 
 /**
- * Check if a user is currently logged in (via localStorage or session)
+ * Check if a user is currently logged in (via localStorage, cookies, or cached session)
  */
 export function isUserLoggedIn(): boolean {
   if (typeof window === "undefined") return false;
   try {
+    // 1. Check localStorage
     const raw = localStorage.getItem("clarity_user");
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed?.name || parsed?.email) return true;
+      if (parsed?.name || parsed?.email || parsed?.id) return true;
+    }
+    // 2. Check cookies for Better Auth session
+    if (
+      document.cookie.includes("better-auth.session_token") ||
+      document.cookie.includes("__Secure-better-auth.session_token") ||
+      document.cookie.includes("better-auth")
+    ) {
+      return true;
     }
   } catch {}
   return false;
+}
+
+/**
+ * Safely extract client-side user info if cached
+ */
+export function getUserFromClient(): { id?: string; name?: string; email?: string } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("clarity_user");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.id || parsed?.name || parsed?.email) return parsed;
+    }
+  } catch {}
+  return null;
 }
