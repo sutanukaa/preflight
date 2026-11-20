@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { inMemoryStore, dbPool } from "@/lib/db";
 import { inngest } from "@/lib/inngest/client";
-import { TranscriptUtterance, MeetingSummary } from "@/types";
+import { TranscriptUtterance, MeetingSummary, MeetingTopic } from "@/types";
 import { generateMeetingSummaryWithGemini, buildDeterministicSummary } from "@/lib/ai-analysis";
 
 export const dynamic = "force-dynamic";
@@ -39,10 +39,24 @@ export async function GET(
         const sRes = await dbPool.query("SELECT * FROM summaries WHERE meeting_id = $1;", [id]);
         if (sRes.rows[0]) {
           const sRow = sRes.rows[0];
+          const rawTopics = typeof sRow.topics === "string" ? JSON.parse(sRow.topics) : sRow.topics || [];
+          const normalizedTopics: MeetingTopic[] = (Array.isArray(rawTopics) ? rawTopics : []).map((t: any, idx: number) => ({
+            id: t.id || `topic-${idx}`,
+            title: t.title || "Topic Milestone",
+            timestamp: t.timestamp || "00:00",
+            seconds: typeof t.seconds === "number" ? t.seconds : 0,
+            summary: t.summary || "",
+            bulletPoints: Array.isArray(t.bulletPoints)
+              ? t.bulletPoints
+              : Array.isArray(t.bullets)
+              ? t.bullets
+              : [],
+          }));
+
           loadedSummary = {
             meetingId: id,
-            overview: sRow.overview,
-            topics: typeof sRow.topics === "string" ? JSON.parse(sRow.topics) : sRow.topics || [],
+            overview: sRow.overview || "",
+            topics: normalizedTopics,
             actionItems: typeof sRow.action_items === "string" ? JSON.parse(sRow.action_items) : sRow.action_items || [],
             keyTakeaways: typeof sRow.key_takeaways === "string" ? JSON.parse(sRow.key_takeaways) : sRow.key_takeaways || [],
             sentiment: typeof sRow.sentiment === "string" ? JSON.parse(sRow.sentiment) : sRow.sentiment || {},

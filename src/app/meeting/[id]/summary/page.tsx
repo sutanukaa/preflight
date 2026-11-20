@@ -185,13 +185,13 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
       `Specialist: ${meeting.agent?.name || "AI Specialist"}`,
       "",
       `## Executive Overview`,
-      meeting.summary.overview,
+      meeting.summary?.overview || "",
       "",
       `## Key Decisions & Takeaways`,
-      ...meeting.summary.keyTakeaways.map((t) => `- ${t}`),
+      ...(meeting.summary?.keyTakeaways || []).map((t) => `- ${t}`),
       "",
       `## Action Deliverables`,
-      ...meeting.summary.actionItems.map(
+      ...(meeting.summary?.actionItems || []).map(
         (a) => `- [${a.status === "completed" ? "x" : " "}] ${a.task} (Owner: ${a.owner}, Priority: ${a.priority.toUpperCase()})`
       ),
     ].join("\n");
@@ -290,10 +290,11 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
       : 60;
 
   // Calculate talk-time metrics
-  const totalUtterances = meeting?.transcripts?.length || 1;
+  const totalUtterances = Math.max(1, (meeting?.transcripts || []).length);
   const agentUtterancesCount = (meeting?.transcripts || []).filter((u) => u.speaker === "agent").length;
-  const userUtterancesCount = totalUtterances - agentUtterancesCount;
-  const agentRatio = Math.round((agentUtterancesCount / totalUtterances) * 100);
+  const userUtterancesCount = Math.max(0, totalUtterances - agentUtterancesCount);
+  const rawRatio = Math.round((agentUtterancesCount / totalUtterances) * 100);
+  const agentRatio = isFinite(rawRatio) ? Math.min(100, Math.max(0, rawRatio)) : 50;
   const userRatio = 100 - agentRatio;
 
   if (loading) {
@@ -598,7 +599,7 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
               </div>
 
               {/* Key Takeaways */}
-              {summary?.keyTakeaways && (
+              {Array.isArray(summary?.keyTakeaways) && summary.keyTakeaways.length > 0 && (
                 <div>
                   <h3 className="text-xs font-mono uppercase tracking-wider text-muted font-bold mb-2">
                     Key Decisions &amp; Takeaways
@@ -629,41 +630,52 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
                 </div>
 
                 <div className="space-y-3">
-                  {summary?.topics.map((topic) => (
-                    <div
-                      key={topic.id}
-                      className="border border-line rounded-md p-4 bg-surface hover:border-brand transition-colors group"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2.5">
-                          <button
-                            onClick={() => seekToSeconds(topic.seconds)}
-                            className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-brand-light text-brand text-[11px] font-mono font-bold hover:bg-brand hover:text-white transition-colors"
-                            title="Jump video to this topic"
-                          >
-                            <Play className="w-2.5 h-2.5 fill-current" />
-                            <span>[{topic.timestamp}]</span>
-                          </button>
-                          <h4 className="text-xs font-bold text-ink group-hover:text-brand transition-colors">
-                            {topic.title}
-                          </h4>
-                        </div>
-                      </div>
-
-                      <p className="text-xs text-ink-soft leading-relaxed mb-2">
-                        {topic.summary}
-                      </p>
-
-                      <div className="space-y-1 pl-2 border-l border-line">
-                        {topic.bulletPoints.map((b, i) => (
-                          <div key={i} className="text-[11px] text-muted flex items-start gap-2">
-                            <span>•</span>
-                            <span>{b}</span>
+                  {(summary?.topics || []).map((topic) => {
+                    const bullets = Array.isArray(topic.bulletPoints)
+                      ? topic.bulletPoints
+                      : Array.isArray((topic as any).bullets)
+                      ? (topic as any).bullets
+                      : [];
+                    return (
+                      <div
+                        key={topic.id}
+                        className="border border-line rounded-md p-4 bg-surface hover:border-brand transition-colors group"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2.5">
+                            <button
+                              onClick={() => seekToSeconds(topic.seconds)}
+                              className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-brand-light text-brand text-[11px] font-mono font-bold hover:bg-brand hover:text-white transition-colors"
+                              title="Jump video to this topic"
+                            >
+                              <Play className="w-2.5 h-2.5 fill-current" />
+                              <span>[{topic.timestamp || "00:00"}]</span>
+                            </button>
+                            <h4 className="text-xs font-bold text-ink group-hover:text-brand transition-colors">
+                              {topic.title}
+                            </h4>
                           </div>
-                        ))}
+                        </div>
+
+                        {topic.summary && (
+                          <p className="text-xs text-ink-soft leading-relaxed mb-2">
+                            {topic.summary}
+                          </p>
+                        )}
+
+                        {bullets.length > 0 && (
+                          <div className="space-y-1 pl-2 border-l border-line">
+                            {bullets.map((b: string, i: number) => (
+                              <div key={i} className="text-[11px] text-muted flex items-start gap-2">
+                                <span>•</span>
+                                <span>{b}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -746,16 +758,18 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
 
                         <p className="text-xs text-ink-soft leading-relaxed">
                           {searchQuery.trim() ? (
-                            // Highlight searched keyword
-                            u.text.split(new RegExp(`(${searchQuery})`, "gi")).map((chunk, i) =>
-                              chunk.toLowerCase() === searchQuery.toLowerCase() ? (
-                                <mark key={i} className="bg-warning-bg text-ink font-bold px-0.5 rounded">
-                                  {chunk}
-                                </mark>
-                              ) : (
-                                chunk
+                            // Highlight searched keyword safely
+                            u.text
+                              .split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"))
+                              .map((chunk, i) =>
+                                chunk.toLowerCase() === searchQuery.toLowerCase() ? (
+                                  <mark key={i} className="bg-warning-bg text-ink font-bold px-0.5 rounded">
+                                    {chunk}
+                                  </mark>
+                                ) : (
+                                  chunk
+                                )
                               )
-                            )
                           ) : (
                             u.text
                           )}
