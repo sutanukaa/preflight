@@ -260,24 +260,33 @@ class PersistentStore {
     this.persist();
 
     if (dbPool) {
+      const safeUserId = meeting.userId || "user-default-1";
       dbPool
         .query(
-          `INSERT INTO meetings (id, title, agent_id, user_id, status, duration_seconds, recording_url)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (id) DO UPDATE SET
-             title = EXCLUDED.title,
-             status = EXCLUDED.status,
-             duration_seconds = EXCLUDED.duration_seconds,
-             recording_url = EXCLUDED.recording_url;`,
-          [
-            meeting.id,
-            meeting.title,
-            meeting.agentId || "agent-david",
-            meeting.userId || "user-default-1",
-            meeting.status || "live",
-            meeting.durationSeconds || 0,
-            meeting.recordingUrl || "",
-          ]
+          `INSERT INTO users (id, name, email, plan)
+           VALUES ($1, 'User', $2, 'pro')
+           ON CONFLICT (id) DO NOTHING;`,
+          [safeUserId, `${safeUserId}@clarity.ai`]
+        )
+        .then(() =>
+          dbPool!.query(
+            `INSERT INTO meetings (id, title, agent_id, user_id, status, duration_seconds, recording_url)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (id) DO UPDATE SET
+               title = EXCLUDED.title,
+               status = EXCLUDED.status,
+               duration_seconds = EXCLUDED.duration_seconds,
+               recording_url = EXCLUDED.recording_url;`,
+            [
+              meeting.id,
+              meeting.title,
+              meeting.agentId || "agent-david",
+              safeUserId,
+              meeting.status || "live",
+              meeting.durationSeconds || 0,
+              meeting.recordingUrl || "",
+            ]
+          )
         )
         .catch((e) => console.warn("Neon sync createMeeting note:", e.message));
     }

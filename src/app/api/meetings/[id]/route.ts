@@ -11,14 +11,44 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  let meeting = inMemoryStore.peekMeeting(id);
+  let meeting: any = null;
 
-  // If not yet in worker memory, check Neon PostgreSQL first before generating a fallback
-  if (!meeting && dbPool) {
+  // Always query Neon PostgreSQL first to guarantee fresh data across serverless lambdas
+  if (dbPool) {
     try {
       const res = await dbPool.query("SELECT * FROM meetings WHERE id = $1;", [id]);
       if (res.rows[0]) {
         const row = res.rows[0];
+
+        // Fetch transcripts
+        const tRes = await dbPool.query(
+          "SELECT * FROM transcripts WHERE meeting_id = $1 ORDER BY seconds ASC;",
+          [id]
+        );
+        const loadedTranscripts: TranscriptUtterance[] = tRes.rows.map((t) => ({
+          id: t.id,
+          speaker: t.speaker,
+          speakerName: t.speaker_name,
+          timestamp: t.timestamp,
+          seconds: t.seconds,
+          text: t.text,
+        }));
+
+        // Fetch summary
+        let loadedSummary: MeetingSummary | undefined = undefined;
+        const sRes = await dbPool.query("SELECT * FROM summaries WHERE meeting_id = $1;", [id]);
+        if (sRes.rows[0]) {
+          const sRow = sRes.rows[0];
+          loadedSummary = {
+            meetingId: id,
+            overview: sRow.overview,
+            topics: typeof sRow.topics === "string" ? JSON.parse(sRow.topics) : sRow.topics || [],
+            actionItems: typeof sRow.action_items === "string" ? JSON.parse(sRow.action_items) : sRow.action_items || [],
+            keyTakeaways: typeof sRow.key_takeaways === "string" ? JSON.parse(sRow.key_takeaways) : sRow.key_takeaways || [],
+            sentiment: typeof sRow.sentiment === "string" ? JSON.parse(sRow.sentiment) : sRow.sentiment || {},
+          };
+        }
+
         meeting = {
           id: row.id,
           title: row.title,
@@ -30,7 +60,8 @@ export async function GET(
             : new Date().toISOString(),
           durationSeconds: row.duration_seconds || 0,
           recordingUrl: row.recording_url || "",
-          transcripts: [],
+          transcripts: loadedTranscripts,
+          summary: loadedSummary,
         };
         inMemoryStore.setMeeting(id, meeting);
       }
@@ -40,7 +71,7 @@ export async function GET(
   }
 
   if (!meeting) {
-    meeting = inMemoryStore.getMeeting(id);
+    meeting = inMemoryStore.peekMeeting(id) || inMemoryStore.getMeeting(id);
   }
 
   if (!meeting) {
@@ -121,6 +152,69 @@ export async function POST(
         userName,
         agentName
       );
+
+      // Persist directly to Neon PostgreSQL
+      if (dbPool) {
+        try {
+          const safeUserId = meeting.userId || "vEcbVdAvAAviFGjmnlSa5ThO0OCdtLmA";
+          await dbPool.query(
+            `INSERT INTO users (id, name, email, plan)
+             VALUES ($1, 'User', $2, 'pro')
+             ON CONFLICT (id) DO NOTHING;`,
+            [safeUserId, `${safeUserId}@clarity.ai`]
+          );
+
+          await dbPool.query(
+            `INSERT INTO meetings (id, title, agent_id, user_id, status, duration_seconds, recording_url)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (id) DO UPDATE SET
+               title = EXCLUDED.title,
+               status = 'completed',
+               duration_seconds = EXCLUDED.duration_seconds,
+               recording_url = EXCLUDED.recording_url;`,
+            [
+              id,
+              meeting.title,
+              meeting.agentId || "agent-sarah",
+              safeUserId,
+              "completed",
+              durationSeconds || 60,
+              meeting.recordingUrl || "",
+            ]
+          );
+
+          for (const t of finalTranscripts) {
+            await dbPool.query(
+              `INSERT INTO transcripts (id, meeting_id, speaker, speaker_name, timestamp, seconds, text)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT (id) DO NOTHING;`,
+              [t.id || `t-${Date.now()}-${Math.random()}`, id, t.speaker, t.speakerName, t.timestamp, t.seconds, t.text]
+            );
+          }
+
+          await dbPool.query(
+            `INSERT INTO summaries (id, meeting_id, overview, topics, action_items, key_takeaways, sentiment)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (meeting_id) DO UPDATE SET
+               overview = EXCLUDED.overview,
+               topics = EXCLUDED.topics,
+               action_items = EXCLUDED.action_items,
+               key_takeaways = EXCLUDED.key_takeaways,
+               sentiment = EXCLUDED.sentiment;`,
+            [
+              `sum-${id}`,
+              id,
+              initialSummary.overview,
+              JSON.stringify(initialSummary.topics || []),
+              JSON.stringify(initialSummary.actionItems || []),
+              JSON.stringify(initialSummary.keyTakeaways || []),
+              JSON.stringify(initialSummary.sentiment || {}),
+            ]
+          );
+        } catch (dbErr) {
+          console.warn("Neon end_call save error:", dbErr);
+        }
+      }
 
       const updatedMeeting = inMemoryStore.updateMeeting(id, {
         status: "completed",
