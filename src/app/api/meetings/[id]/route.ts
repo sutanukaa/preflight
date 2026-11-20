@@ -185,7 +185,11 @@ export async function POST(
                title = EXCLUDED.title,
                status = 'completed',
                duration_seconds = EXCLUDED.duration_seconds,
-               recording_url = EXCLUDED.recording_url;`,
+               recording_url = CASE
+                 WHEN meetings.recording_url IS NOT NULL AND meetings.recording_url != '' AND meetings.recording_url NOT LIKE '/recordings/%'
+                 THEN meetings.recording_url
+                 ELSE EXCLUDED.recording_url
+               END;`,
             [
               id,
               meeting.title,

@@ -23,8 +23,10 @@ import {
   Check,
   FileDown,
   Loader2,
+  VideoOff,
 } from "lucide-react";
 import { ActionItem, Meeting, MeetingChatMessage, MeetingTopic, TranscriptUtterance } from "@/types";
+import { getRecordingBlob } from "@/lib/video-store";
 
 export default function MeetingSummaryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -37,6 +39,32 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [localRecordingUrl, setLocalRecordingUrl] = useState<string | null>(null);
+  const [hasLocalRecording, setHasLocalRecording] = useState(false);
+
+  // Load client-persisted video recording from IndexedDB
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    async function loadLocalRecording() {
+      try {
+        const blob = await getRecordingBlob(id);
+        if (blob && blob.size > 1000) {
+          objectUrl = URL.createObjectURL(blob);
+          setLocalRecordingUrl(objectUrl);
+          setHasLocalRecording(true);
+        }
+      } catch (err) {
+        console.warn("Could not load local recording blob:", err);
+      }
+    }
+    loadLocalRecording();
+
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [id]);
 
   // Transcript search & filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -202,9 +230,20 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
   }
 
   // Export transcript in different formats
-  function handleExport(format: "markdown" | "txt" | "vtt" | "json") {
-    if (!meeting?.transcripts) return;
+  function handleExport(format: "markdown" | "txt" | "vtt" | "json" | "video") {
     setShowExportMenu(false);
+
+    if (format === "video") {
+      if (localRecordingUrl) {
+        const a = document.createElement("a");
+        a.href = localRecordingUrl;
+        a.download = `recording-${meeting?.id || id}.webm`;
+        a.click();
+      }
+      return;
+    }
+
+    if (!meeting?.transcripts) return;
 
     let content = "";
     let mimeType = "text/plain";
@@ -382,7 +421,15 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
             </button>
 
             {showExportMenu && (
-              <div className="absolute right-0 mt-1 w-40 bg-surface border border-line rounded-md shadow-lg z-20 py-1 text-xs">
+              <div className="absolute right-0 mt-1 w-44 bg-surface border border-line rounded-md shadow-lg z-20 py-1 text-xs">
+                {hasLocalRecording && (
+                  <button
+                    onClick={() => handleExport("video")}
+                    className="w-full text-left px-3 py-1.5 hover:bg-canvas text-brand flex items-center justify-between font-mono text-[11px] font-bold border-b border-line"
+                  >
+                    <span>Download Video (.webm)</span>
+                  </button>
+                )}
                 <button
                   onClick={() => handleExport("markdown")}
                   className="w-full text-left px-3 py-1.5 hover:bg-canvas text-ink flex items-center justify-between font-mono text-[11px]"
@@ -433,16 +480,18 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
               <video
                 ref={videoRef}
                 src={
-                  meeting.recordingUrl?.replace(/\.webm$/, ".mp4") ||
-                  meeting.recordingUrl ||
-                  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                  localRecordingUrl ||
+                  (meeting.recordingUrl &&
+                  meeting.recordingUrl.startsWith("http") &&
+                  !meeting.recordingUrl.includes("BigBuckBunny") &&
+                  !meeting.recordingUrl.includes("/recordings/")
+                    ? meeting.recordingUrl
+                    : "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4")
                 }
                 onError={(e) => {
                   const target = e.currentTarget;
-                  if (target.src.endsWith(".mp4") && meeting.recordingUrl && !meeting.recordingUrl.endsWith(".mp4")) {
-                    target.src = meeting.recordingUrl;
-                  } else if (!target.src.includes("BigBuckBunny")) {
-                    target.src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+                  if (!target.src.includes("flower.mp4") && !localRecordingUrl) {
+                    target.src = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
                   }
                 }}
                 onTimeUpdate={handleTimeUpdate}
@@ -470,7 +519,7 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
                   setCurrentTime(0);
                 }}
                 playsInline
-                preload="auto"
+                preload="metadata"
                 className="w-full aspect-video object-cover bg-black"
               />
 
@@ -482,6 +531,20 @@ export default function MeetingSummaryPage({ params }: { params: Promise<{ id: s
                   </div>
                 </div>
               )}
+
+              {/* Status Badge */}
+              <div className="absolute top-3 left-3 pointer-events-none z-10">
+                {hasLocalRecording ? (
+                  <span className="px-2 py-0.5 rounded bg-brand/90 text-white font-mono text-[10px] font-bold shadow-subtle flex items-center gap-1.5 backdrop-blur-sm">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    HD Session Recording
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-black/60 text-white/80 font-mono text-[10px] shadow-subtle backdrop-blur-sm">
+                    Preview Mode
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Video Overlay Controls */}

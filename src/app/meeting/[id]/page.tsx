@@ -4,6 +4,8 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
+import { saveRecordingBlob } from "@/lib/video-store";
 import {
   Mic,
   MicOff,
@@ -1102,20 +1104,12 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
           }
           const ctx = canvas.getContext("2d", { willReadFrequently: true, alpha: false });
 
-          // 3. Capture video stream from canvas with atomic requestFrame synchronization
+          // 3. Capture continuous 30 FPS video stream from composite canvas
           let canvasStream: MediaStream;
-          let supportsManualRequest = false;
           try {
-            canvasStream = typeof (canvas as any).captureStream === "function" ? (canvas as any).captureStream(0) : (canvas as any).captureStream(30);
-            const track = canvasStream.getVideoTracks()[0];
-            if (track && typeof (track as any).requestFrame === "function") {
-              supportsManualRequest = true;
-              canvasVideoTrackRef.current = track;
-            } else {
-              canvasStream = (canvas as any).captureStream(30);
-            }
+            canvasStream = typeof (canvas as any).captureStream === "function" ? (canvas as any).captureStream(30) : stream;
           } catch {
-            canvasStream = (canvas as any).captureStream(30);
+            canvasStream = stream;
           }
 
           let lastFrameTime = 0;
@@ -1126,11 +1120,6 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
               lastFrameTime = now;
               if (ctx) {
                 drawCompositeFrame(ctx, now);
-                if (supportsManualRequest && canvasVideoTrackRef.current) {
-                  try {
-                    (canvasVideoTrackRef.current as any).requestFrame();
-                  } catch {}
-                }
               }
             }
             animFrameIdRef.current = requestAnimationFrame(renderLoop);
@@ -1642,18 +1631,31 @@ export default function MeetingRoomPage({ params }: { params: Promise<{ id: stri
     }
 
     try {
-      // If we have recorded chunks, upload the webm video file
+      // 1. Immediately persist full-quality video locally in client IndexedDB
+      // This guarantees instant, reliable, zero-latency playback even without cloud storage tokens
       if (recordedChunksRef.current.length > 0) {
         const videoBlob = new Blob(recordedChunksRef.current, { type: "video/webm" });
-        const formData = new FormData();
-        formData.append("video", videoBlob, `${id}.webm`);
         try {
-          await fetch(`/api/meetings/${id}/recording`, {
-            method: "POST",
-            body: formData,
+          await saveRecordingBlob(id, videoBlob);
+        } catch (dbErr) {
+          console.warn("IndexedDB save note:", dbErr);
+        }
+
+        // 2. Optionally attempt background upload if Vercel Blob is configured
+        try {
+          const blobResult = await upload(`recordings/${id}.webm`, videoBlob, {
+            access: "public",
+            handleUploadUrl: "/api/upload",
           });
-        } catch (uploadErr) {
-          console.warn("Recording upload error:", uploadErr);
+          if (blobResult?.url) {
+            await fetch(`/api/meetings/${id}/recording`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ blobUrl: blobResult.url }),
+            });
+          }
+        } catch {
+          // Cloud upload not configured or failed - IndexedDB handles client playback seamlessly
         }
       }
 

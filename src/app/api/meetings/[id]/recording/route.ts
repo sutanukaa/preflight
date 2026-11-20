@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { inMemoryStore } from "@/lib/db";
-import fs from "fs";
-import path from "path";
-import { execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { inMemoryStore, dbPool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -15,77 +9,40 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const formData = await req.formData();
-    const file = formData.get("video") as File | null;
+    const body = await req.json();
 
-    if (!file) {
-      return NextResponse.json({ error: "No video file provided" }, { status: 400 });
-    }
+    // Client-upload flow: the client uploads directly to Vercel Blob,
+    // then sends us the resulting blob URL to persist.
+    const { blobUrl } = body;
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    const publicDir = path.join(process.cwd(), "public", "recordings");
-    if (!fs.existsSync(publicDir)) {
-      fs.mkdirSync(publicDir, { recursive: true });
-    }
-
-    const fileName = `${id}.webm`;
-    const filePath = path.join(publicDir, fileName);
-    fs.writeFileSync(filePath, buffer);
-
-    // Automatically transcode to pristine, fast-start MP4 (H.264 + AAC)
-    // This repairs duplicate/non-monotonic timestamps and eliminates black-screen decoder stalls in browsers
-    const mp4FileName = `${id}.mp4`;
-    const mp4Path = path.join(publicDir, mp4FileName);
-    let finalUrl = `/recordings/${fileName}`;
-
-    try {
-      await execFileAsync(
-        "ffmpeg",
-        [
-          "-loglevel",
-          "error",
-          "-fflags",
-          "+genpts+discardcorrupt",
-          "-err_detect",
-          "ignore_err",
-          "-i",
-          filePath,
-          "-vf",
-          "fps=30",
-          "-c:v",
-          "libx264",
-          "-preset",
-          "ultrafast",
-          "-crf",
-          "22",
-          "-pix_fmt",
-          "yuv420p",
-          "-c:a",
-          "aac",
-          "-b:a",
-          "128k",
-          "-movflags",
-          "+faststart",
-          mp4Path,
-          "-y",
-        ],
-        { maxBuffer: 50 * 1024 * 1024 }
+    if (!blobUrl || typeof blobUrl !== "string") {
+      return NextResponse.json(
+        { error: "Missing blobUrl in request body" },
+        { status: 400 }
       );
-      if (fs.existsSync(mp4Path) && fs.statSync(mp4Path).size > 1000) {
-        finalUrl = `/recordings/${mp4FileName}`;
-      }
-    } catch (ffmpegErr) {
-      console.warn("FFmpeg MP4 transcode note (using raw capture):", ffmpegErr);
     }
 
-    const recordingUrl = finalUrl;
-    inMemoryStore.updateMeeting(id, { recordingUrl });
+    // Update in-memory store
+    inMemoryStore.updateMeeting(id, { recordingUrl: blobUrl });
 
-    return NextResponse.json({ success: true, recordingUrl });
+    // Persist the recording URL to Neon PostgreSQL
+    if (dbPool) {
+      try {
+        await dbPool.query(
+          `UPDATE meetings SET recording_url = $1 WHERE id = $2;`,
+          [blobUrl, id]
+        );
+      } catch (dbErr) {
+        console.warn("Neon recording URL update error:", dbErr);
+      }
+    }
+
+    return NextResponse.json({ success: true, recordingUrl: blobUrl });
   } catch (err) {
-    console.error("Failed to save recording:", err);
-    return NextResponse.json({ error: "Failed to upload recording" }, { status: 500 });
+    console.error("Failed to save recording URL:", err);
+    return NextResponse.json(
+      { error: "Failed to save recording" },
+      { status: 500 }
+    );
   }
 }

@@ -243,7 +243,7 @@ class PersistentStore {
         status: "live",
         startedAt: new Date().toISOString(),
         durationSeconds: 0,
-        recordingUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        recordingUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
         transcripts: [],
       };
       this.meetings.set(id, meeting);
